@@ -1,7 +1,9 @@
-// Title-less abstract placeholder covers. Token colours only; geometry differs per project and is seeded from the slug.
+// Title-less abstract placeholder covers, only for projects that have no cover yet (real screenshots are never overwritten). Token colours only; geometry differs per project and is seeded from the slug.
 import sharp from 'sharp';
+import { existsSync, readdirSync } from 'node:fs';
 
-const SLUGS = ['veylith', 'clyra', 'twitch'];
+// One cover per project file, so new projects get a cover without editing this script.
+const SLUGS = readdirSync('src/content/projects').filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3)).sort();
 const W = 1600, H = 1000;
 const SURF = '#161617', LINE = '#2A2A2C', DIM = '#8A867E', ACC = '#FF4A1C';
 
@@ -44,6 +46,7 @@ const compose = {
 
 for (let i = 0; i < SLUGS.length; i++) {
   const slug = SLUGS[i];
+  if (existsSync(`src/content/projects/${slug}.webp`) || existsSync(`src/content/projects/${slug}-hero.webp`)) continue;
   const r = rng(slug);
   const { s, mx, my } = compose[i % 3](r);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="100%" height="100%" fill="${SURF}"/>${s}

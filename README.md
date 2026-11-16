@@ -27,6 +27,7 @@ Create one file: `src/content/projects/<slug>.md` (put the cover image next to i
 | role | string | required |
 | stack | string[] | required |
 | cover | image path | optional, relative e.g. `./my-app.webp` |
+| shot | image path | optional, in-app screenshot shown on the project page; `cover` is then the app's landing page, shown in the carousel |
 | live | url | optional |
 | repo | url | optional |
 | order | number | required, sort order (and "Next project" order, wraps) |

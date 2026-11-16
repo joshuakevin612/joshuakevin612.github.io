@@ -138,7 +138,18 @@ async function init() {
       });
     });
     const pt = $('[data-proj-title]');
-    if (pt) add(() => { const s = SplitText.create(pt, { type: 'chars', mask: 'chars' }); gsap.from(s.chars, { yPercent: 110, duration: 1, ease: 'power4.out', stagger: 0.04, delay: 0.2 }); });
+    if (pt) add(() => {
+      // Split by word as well so titles only wrap between words, then shrink the title until its longest word fits the column.
+      const s = SplitText.create(pt, { type: 'words,chars', mask: 'chars' });
+      s.words.forEach((w) => { (w as HTMLElement).style.whiteSpace = 'nowrap'; });
+      const fit = () => {
+        pt.style.fontSize = '';
+        const max = Math.max(...s.words.map((w) => (w as HTMLElement).offsetWidth)), cw = pt.clientWidth;
+        if (max > cw) pt.style.fontSize = `${(parseFloat(getComputedStyle(pt).fontSize) * cw / max) * 0.98}px`;
+      };
+      fit(); on(window, 'resize', fit);
+      gsap.from(s.chars, { yPercent: 110, duration: 1, ease: 'power4.out', stagger: 0.04, delay: 0.2 });
+    });
   }
 
   // marquee reacting to scroll velocity

@@ -18,7 +18,8 @@ type Store = {
 let store: Store | null = null;
 const N = film.count;
 const pad = (n: number) => String(n).padStart(4, '0');
-const url = (key: string, i: number) => `/film/${key}/f_${pad(i + 1)}.webp`;
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const url = (key: string, i: number) => `${BASE}/film/${key}/f_${pad(i + 1)}.webp`;
 const dprCap = () => Math.min(devicePixelRatio || 1, 2);
 const pickKey = () => (film.mobile && innerWidth * dprCap() <= film.mobile.width ? 'mobile' : 'desktop');
 const MAX_INFLIGHT = 6;

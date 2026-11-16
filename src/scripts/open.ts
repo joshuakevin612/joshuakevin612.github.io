@@ -17,7 +17,7 @@ export function fillAndGo(src: string, slug: string, from?: DOMRect | null) {
   const full = { left: 0, top: 0, width: innerWidth, height: innerHeight };
   set(from ?? full);
   document.body.appendChild(img);
-  const go = () => navigate(`/projects/${slug}`);
+  const go = () => navigate(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/projects/${slug}/`);
   if (from) {
     gsap.to(img, { left: 0, top: 0, width: innerWidth, height: innerHeight, duration: 0.9, ease: 'power4.inOut', onComplete: go });
   } else {

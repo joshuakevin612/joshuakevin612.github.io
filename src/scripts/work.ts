@@ -78,6 +78,7 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
     if (it.img) {
       new THREE.TextureLoader().load(it.img, (t) => {
         textures[i] = t; t.anisotropy = 4;
+        renderer.initTexture(t); // upload now, so the first frame a card comes into view does not hitch
         mat.uniforms.uTex.value = t; mat.uniforms.uImg.value = t.image.width / t.image.height;
       });
     }
@@ -91,17 +92,18 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
     renderer.setSize(W, H, false);
     cam.aspect = W / H; cam.updateProjectionMatrix();
     vh = 2 * CAMZ * Math.tan((FOV * Math.PI) / 360); vw = vh * cam.aspect;
-    // Card is anchored to the title: its lower edge sits 30% of a title line below the title's top edge.
+    // Card is anchored to the title: its lower edge stops just above the title's top edge, so light screenshots never sit behind the title text.
     const titleEl = section.querySelector<HTMLElement>('[data-work-title]')!;
     const fs = parseFloat(getComputedStyle(titleEl).fontSize) || 100;
     const lineH = fs * 0.92;
     const pr = pin.getBoundingClientRect(), tr = titleEl.getBoundingClientRect();
-    const bottomPx = tr.bottom - pr.top - lineH + lineH * 0.3;
+    const bottomPx = tr.bottom - pr.top - lineH - lineH * 0.12;
     const topLimit = Math.max(72, 4.75 * 16);
     const avail = Math.max(120, bottomPx - topLimit);
     const portrait = W / H < 1;
-    const hpx = Math.min(avail, portrait ? W * 0.74 * 1.25 : H * 0.5);
-    const wpx = portrait ? W * 0.74 : Math.min(W * 0.74, hpx * 1.6);
+    // Covers are 16:10 app screenshots, so portrait viewports get a wide 5:4 card that keeps most of the frame instead of a tall crop.
+    const hpx = Math.min(avail, portrait ? W * 0.84 * 0.8 : H * 0.5);
+    const wpx = portrait ? W * 0.84 : Math.min(W * 0.74, hpx * 1.6);
     const k = vh / H;
     cardW = wpx * k; cardH = hpx * k;
     yC = (H / 2 - (bottomPx - hpx / 2)) * k;
@@ -118,53 +120,66 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
   const segs = items.map(() => { const s = document.createElement('span'); s.appendChild(document.createElement('i')); bar.appendChild(s); return s.firstElementChild as HTMLElement; });
   let split: SplitText | null = null;
   let tw: gsap.core.Tween | null = null;
-  const setMeta = (i: number, dir: number) => {
-    const it = items[i];
-    countEl.innerHTML = `<b>${pad(i + 1)}</b> / ${pad(N)}`;
-    metaEl.innerHTML = `<span>${it.year} — ${it.role}</span><span>${it.stack.join(' · ')}</span>`;
-    gsap.fromTo([countEl, ...Array.from(metaEl.children)], { opacity: 0, y: 10 * dir }, { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out', stagger: 0.05, overwrite: 'auto' });
+  // Long titles are scaled down to the available width. A transform (not font-size) so the card geometry, which is anchored to the title's font size, stays put.
+  const fitTitle = () => {
+    titleEl.style.transform = '';
+    const avail = titleEl.parentElement!.clientWidth, w = titleEl.scrollWidth;
+    if (w > avail + 1) titleEl.style.transform = `scale(${avail / w})`;
   };
-  const swapTitle = (i: number, dir: number) => {
-    tw?.kill();
-    const run = () => {
-      split?.revert();
-      titleEl.textContent = items[i].title;
-      split = SplitText.create(titleEl, { type: 'chars', mask: 'chars', maskClass: 'wmask' });
-      gsap.set(split.chars, { yPercent: 110 * dir });
-      tw = gsap.to(split.chars, { yPercent: 0, duration: 0.85, ease: 'power4.out', stagger: 0.035 });
-    };
-    if (!split) run();
-    else tw = gsap.to(split.chars, { yPercent: -110 * dir, duration: 0.3, ease: 'power3.in', stagger: 0.015, onComplete: run });
-    setMeta(i, dir);
+  countEl.innerHTML = `<b></b> / ${pad(N)}`;
+  const countB = countEl.firstElementChild as HTMLElement;
+  metaEl.innerHTML = '<span></span><span></span>';
+  const metaLines = Array.from(metaEl.children) as HTMLElement[];
+  // Title and meta swaps are coalesced. A change hides the current title once; the new one is only built (SplitText is a DOM
+  // rebuild) after the carousel has stayed on one project for a moment, so flying past several projects costs one swap, not one each.
+  let phase: 'empty' | 'idle' | 'out' | 'hidden' | 'in' = 'empty';
+  let want = 0, wantDir = 1, wantAt = 0, titleIdx = -1;
+  const SETTLE = 110;
+  const showTitle = () => {
+    const it = items[want], dir = wantDir;
+    tw?.kill(); split?.revert();
+    titleEl.textContent = it.title;
+    split = SplitText.create(titleEl, { type: 'chars', mask: 'chars', maskClass: 'wmask' });
+    fitTitle();
+    metaLines[0].textContent = `${it.year} — ${it.role}`;
+    metaLines[1].textContent = it.stack.join(' · ');
+    phase = 'in';
+    gsap.set(split.chars, { yPercent: 110 * dir });
+    tw = gsap.to(split.chars, { yPercent: 0, duration: 0.7, ease: 'power4.out', stagger: 0.03, onComplete: () => { phase = 'idle'; } });
+    gsap.fromTo(metaLines, { opacity: 0, y: 10 * dir }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out', stagger: 0.05, overwrite: true });
+  };
+  const hideTitle = () => {
+    tw?.kill(); phase = 'out';
+    tw = gsap.to(split!.chars, { yPercent: -110 * wantDir, duration: 0.22, ease: 'power3.in', stagger: 0.01, onComplete: () => { phase = 'hidden'; } });
+    gsap.to(metaLines, { opacity: 0, duration: 0.2, overwrite: true });
+  };
+  const requestTitle = (i: number, dir: number) => {
+    want = i; wantDir = dir; wantAt = performance.now();
+    countB.textContent = pad(i + 1);
+    if (phase === 'idle' || phase === 'in') hideTitle();
   };
 
   // ---------- state
-  let cur = 0, target = 0, vel = 0, active = -1;
-  let dragging = false, snapping = false, opening = false, visible = false, goal = -1, lastY = -1;
+  // The carousel is a loop. Its position is the page scroll through the stage plus `offset`, which drag, arrow keys, clicks
+  // and the resting snap move. Scroll still drives it (and is re-read every frame); the page itself is never scrolled from here.
+  let cur = 0, target = 0, vel = 0, active = -1, offset = 0;
+  let dragging = false, opening = false, visible = false, lastY = -1;
   let lastInput = performance.now();
   const open = { k: 0, fade: 0 };
   let openIdx = -1;
   const ptr = { x: 0, y: 0 };
-  let snapTimer = 0;
+  const mod = (i: number) => ((i % N) + N) % N;
+  /** shortest signed distance on the loop, in [-N/2, N/2) */
+  const wrap = (d: number) => (N > 1 ? (((d % N) + N * 1.5) % N) - N / 2 : d);
 
   // start/end only; position is derived from the live scroll offset every frame (see tick)
   const st = ScrollTrigger.create({ trigger: section, start: 'top top', end: 'bottom bottom', invalidateOnRefresh: true });
   const scrollPos = () => (N > 1 && st.end > st.start ? clamp((scrollY - st.start) / (st.end - st.start), 0, 1) * (N - 1) : 0);
-  const yFor = (pos: number) => st.start + (N > 1 ? pos / (N - 1) : 0) * (st.end - st.start);
-  const setScroll = (pos: number) => {
-    const y = yFor(pos);
-    if (lenis) lenis.scrollTo(y, { immediate: true, force: true }); else window.scrollTo(0, y);
-  };
-  const goTo = (i: number) => {
-    if (N < 2) return;
-    i = clamp(i, 0, N - 1);
-    snapping = true; goal = i;
-    clearTimeout(snapTimer);
-    snapTimer = window.setTimeout(() => { snapping = false; }, 1400);
-    const y = yFor(i);
-    if (lenis) lenis.scrollTo(y, { duration: 0.9, easing: (t: number) => 1 - Math.pow(1 - t, 4), onComplete: () => { snapping = false; } });
-    else window.scrollTo({ top: y, behavior: 'smooth' });
-  };
+  const total = () => scrollPos() + offset;
+  /** rest on whole position `whole` (any integer; it is taken round the loop) */
+  const settleOn = (whole: number) => { offset += whole - total(); lastInput = performance.now(); };
+  const step = (dir: number) => { if (N > 1) settleOn(Math.round(total()) + dir); };
+  const goTo = (i: number) => { if (N > 1) { const r = Math.round(total()); settleOn(r + wrap(i - r)); } };
 
   const openProject = (i: number) => {
     if (opening) return;
@@ -190,9 +205,8 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
   let samples: Array<{ x: number; t: number }> = [];
   const onDown = (e: PointerEvent) => {
     if (opening || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    down = { x: e.clientX, t: performance.now(), start: target, id: e.pointerId };
+    down = { x: e.clientX, t: performance.now(), start: offset, id: e.pointerId };
     samples = [{ x: e.clientX, t: performance.now() }];
-    snapping = false;
   };
   const onMove = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -201,9 +215,8 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
       const dx = e.clientX - down.x;
       if (!dragging && Math.abs(dx) > 6) { dragging = true; canvas.classList.add('is-drag'); try { canvas.setPointerCapture(e.pointerId); } catch {} }
       if (dragging) {
-        target = clamp(down.start - dx / unitPx, 0, N - 1);
+        offset = down.start - dx / unitPx;
         lastInput = performance.now();
-        setScroll(target);
         samples.push({ x: e.clientX, t: performance.now() });
         if (samples.length > 6) samples.shift();
       }
@@ -219,26 +232,25 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
       dragging = false; canvas.classList.remove('is-drag');
       const a = samples[0], b = samples[samples.length - 1];
       const v = b && a && b.t > a.t ? -((b.x - a.x) / (b.t - a.t)) * 1000 / unitPx : 0; // units / s
-      goTo(Math.round(clamp(target + v * 0.25, 0, N - 1)));
+      if (N > 1) settleOn(Math.round(total() + v * 0.25));
       return;
     }
     if (cancelled || opening || Math.abs(e.clientX - d.x) > 6) return;
     const i = hit(e, false);
     if (i < 0) return;
-    if (i === Math.round(cur) && Math.abs(cur - i) < 0.2) openProject(i); else goTo(i);
+    if (i === active && Math.abs(wrap(cur - i)) < 0.2) openProject(i); else goTo(i);
   };
   const onUp = (e: PointerEvent) => endDrag(e, false);
   const onCancel = (e: PointerEvent) => endDrag(e, true);
   const onLeave = () => { canvas.dataset.cursorLabel = 'Drag'; };
-  const onWheel = () => { snapping = false; lastInput = performance.now(); };
+  const onWheel = () => { lastInput = performance.now(); };
   const inStage = () => { const r = section.getBoundingClientRect(); return r.top <= innerHeight * 0.5 && r.bottom >= innerHeight * 0.5; };
   const onKey = (e: KeyboardEvent) => {
     if (opening || !inStage()) return;
     const ae = document.activeElement as HTMLElement | null;
     if (ae && ae !== document.body && !section.contains(ae)) return;
-    const base = snapping && goal >= 0 ? goal : Math.round(target);
-    if (e.key === 'ArrowRight') { e.preventDefault(); goTo(base + 1); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(base - 1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
     else if (e.key === 'Enter' && (!ae || ae === document.body)) { openProject(active); }
   };
   canvas.dataset.cursorLabel = 'Drag';
@@ -250,7 +262,8 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
   window.addEventListener('wheel', onWheel, { passive: true });
   window.addEventListener('touchmove', onWheel, { passive: true });
   window.addEventListener('keydown', onKey);
-  window.addEventListener('resize', resize);
+  const onResize = () => { resize(); fitTitle(); };
+  window.addEventListener('resize', onResize);
   const linkHandlers = links.map((a, i) => {
     const f = () => { if (!opening) goTo(i); };
     const c = (e: MouseEvent) => { if (e.metaKey || e.ctrlKey || e.shiftKey || opening) return; e.preventDefault(); if (i === active) openProject(i); else goTo(i); };
@@ -263,30 +276,37 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
   const tick = () => {
     const now = performance.now();
     const dt = Math.min((now - prev) / 1000, 0.1) || 0.016; prev = now;
-    if (!dragging && !opening) target = scrollPos();
-    if (scrollY !== lastY) { lastY = scrollY; if (!snapping && !dragging) lastInput = now; }
+    if (!opening) target = total();
+    if (scrollY !== lastY) { lastY = scrollY; lastInput = now; }
     const rc = section.getBoundingClientRect();
     visible = rc.bottom > 0 && rc.top < innerHeight;
     if (!visible) { cur = target; return; }
-    if (!dragging && !snapping && !opening && N > 1 && now - lastInput > 180) {
+    // at rest, settle on the nearest project by moving the offset (never the page scroll, so it cannot fight the user's scrolling)
+    if (!dragging && !opening && N > 1 && now - lastInput > 180) {
       const r = Math.round(target);
-      if (Math.abs(target - r) > 0.003) goTo(r);
+      if (Math.abs(target - r) > 0.003) { offset += r - target; target = r; }
     }
     const before = cur;
     cur += (target - cur) * (1 - Math.exp(-dt * (dragging ? 14 : 7)));
     const v = (cur - before) / dt;
     vel += (v - vel) * 0.2;
     const uVel = clamp(vel * 0.45, -1, 1);
-    const a = clamp(Math.round(cur), 0, N - 1);
+    // The title follows where the carousel is heading (target), the cards follow the eased position (cur): a jump of
+    // several projects then swaps the title once, straight to its destination, instead of once per project passed.
+    const ti = mod(Math.round(target));
+    if (ti !== titleIdx) {
+      requestTitle(ti, titleIdx < 0 || wrap(ti - titleIdx) > 0 ? 1 : -1);
+      titleIdx = ti;
+    }
+    const a = mod(Math.round(cur));
     if (a !== active) {
-      const dir = active < 0 ? 1 : a > active ? 1 : -1;
-      swapTitle(a, dir);
       active = a;
       segs.forEach((s, j) => s.parentElement!.classList.toggle('on', j === a));
     }
+    if (phase === 'empty' || (phase === 'hidden' && now - wantAt > SETTLE)) showTitle();
     const R = cardW * 2.6, yOff = yC;
     meshes.forEach((m, i) => {
-      const d = i - cur;
+      const d = wrap(i - cur);
       const u = (m.material as THREE.ShaderMaterial).uniforms;
       m.visible = Math.abs(d) < 3.3;
       if (!m.visible) return;
@@ -295,13 +315,14 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
       let ry = -th * 0.85, rx = 0, sx = cardW, sy = cardH;
       const w = Math.max(0, 1 - Math.abs(d));
       ry += ptr.x * 0.12 * w; rx = -ptr.y * 0.08 * w;
-      let fade = 1;
+      // with few projects a card changes side at the far point of the loop; fade it out there so it does not pop
+      let fade = N < 7 ? clamp((N / 2 - Math.abs(d)) * 4, 0, 1) : 1;
       if (opening) {
         if (i === openIdx) {
           const k = open.k;
           x *= 1 - k; y *= 1 - k; z *= 1 - k; ry *= 1 - k; rx *= 1 - k;
           sx = cardW + (vw - cardW) * k; sy = cardH + (vh - cardH) * k;
-        } else { x += Math.sign(d || 1) * open.fade * vw * 0.7; fade = 1 - open.fade; }
+        } else { x += Math.sign(d || 1) * open.fade * vw * 0.7; fade *= 1 - open.fade; }
       }
       m.position.set(x, y, z); m.rotation.set(rx, ry, 0); m.scale.set(sx, sy, 1);
       m.renderOrder = 10 - Math.abs(d);
@@ -310,20 +331,19 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
       u.uDim.value = Math.min(Math.abs(d), 1);
       u.uFade.value = fade;
     });
-    segs.forEach((s, j) => { s.style.transform = `scaleX(${clamp(1 - Math.abs(cur - j), 0, 1).toFixed(3)})`; });
+    segs.forEach((s, j) => { s.style.transform = `scaleX(${clamp(1 - Math.abs(wrap(cur - j)), 0, 1).toFixed(3)})`; });
     renderer.render(scene, cam);
   };
   gsap.ticker.add(tick);
 
   // initial position from current scroll (e.g. reload / back / anchor jump)
   target = cur = scrollPos();
-  const onRefresh = () => { resize(); target = scrollPos(); };
+  const onRefresh = () => { resize(); fitTitle(); };
   ScrollTrigger.addEventListener('refresh', onRefresh);
 
   return () => {
     gsap.ticker.remove(tick);
-    clearTimeout(snapTimer);
-    tw?.kill(); gsap.killTweensOf([open, ui, countEl, metaEl, ...Array.from(metaEl.children)]);
+    tw?.kill(); gsap.killTweensOf([open, ui, ...metaLines]);
     split?.revert();
     ScrollTrigger.removeEventListener('refresh', onRefresh);
     st.kill();
@@ -335,7 +355,7 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
     window.removeEventListener('wheel', onWheel);
     window.removeEventListener('touchmove', onWheel);
     window.removeEventListener('keydown', onKey);
-    window.removeEventListener('resize', resize);
+    window.removeEventListener('resize', onResize);
     linkHandlers.forEach((h) => h());
     textures.forEach((t) => t?.dispose());
     blank.dispose(); geo.dispose();

@@ -36,6 +36,8 @@ html.has-cursor, html.has-cursor * { cursor: none !important; }
 /* nav */
 .nav { position: fixed; inset: 0 0 auto 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; padding: 1.1rem var(--gutter); pointer-events: none; }
 .nav > * { pointer-events: auto; }
+/* project pages scroll long text under the fixed nav, so it gets a solid-ish bar there (the home film stays uncovered) */
+body:has(.proj) .nav { background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .logo { font-weight: 800; font-size: 1.5rem; letter-spacing: -.06em; display: inline-block; }
 .logo span { color: var(--accent); }
 .nav ul { list-style: none; display: flex; gap: clamp(1rem, 3vw, 2.5rem); }
@@ -114,7 +116,7 @@ html.reduced .hint { display: none; }
 .work__count { align-self: flex-end; }
 .work__count b { color: var(--accent); font-weight: 500; }
 .work__bottom { display: grid; gap: 1.2rem; }
-.work__title { font-size: var(--fs-xxl); line-height: .92; letter-spacing: -.055em; font-weight: 700; height: .92em; white-space: nowrap; }
+.work__title { font-size: var(--fs-xxl); line-height: .92; letter-spacing: -.055em; font-weight: 700; height: .92em; white-space: nowrap; transform-origin: left bottom; }
 .wmask { padding-bottom: .22em; margin-bottom: -.22em; }
 .work__meta { display: grid; gap: .25rem; height: calc(2 * 1.4em); color: var(--text-2); }
 .work__meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -145,6 +147,7 @@ html.reduced .hint { display: none; }
 .prose { max-width: 46rem; margin: 2rem 0 clamp(5rem, 12vh, 10rem) auto; font-size: clamp(1.1rem, 1rem + .5vw, 1.5rem); }
 .prose > * + * { margin-top: 1.2em; }
 .prose h2 { font-size: var(--fs-xl); letter-spacing: -.04em; line-height: 1; margin-top: 2em; }
+.prose img { width: 100%; height: auto; background: var(--surface); }
 .next { display: block; padding: clamp(4rem, 12vh, 9rem) var(--gutter); border-top: 1px solid var(--line); overflow: hidden; }
 .next__title { font-size: var(--fs-huge); line-height: .9; letter-spacing: -.06em; font-weight: 800; transition: color .3s, transform .6s cubic-bezier(.7,0,.2,1); overflow-wrap: anywhere; }
 .next:hover .next__title { color: var(--accent); transform: translateX(2vw); }
@@ -154,3 +157,4 @@ html.reduced .hint { display: none; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 @media (max-width: 640px) { .work--gl .work__head { left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); transform: none; } }
+@media (max-width: 640px) { .next__title { font-size: var(--fs-xxl); } }

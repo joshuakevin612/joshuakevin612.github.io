@@ -10,15 +10,16 @@ export async function getStaticPaths() {
 const { entry, next } = Astro.props;
 const { Content } = await render(entry);
 const d = entry.data;
+const main = d.shot ?? d.cover;
 const og = d.cover ? (await getImage({ src: d.cover, width: 1200, format: 'png' })).src : undefined;
 ---
 <Layout title={`${d.title} — Joshua Kevin`} description={d.summary} theme="dark" image={og}>
   <article class="proj">
-    <p class="mono dim" data-reveal><a class="link" href="/#work">← All work</a></p>
+    <p class="mono dim" data-reveal><a class="link" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/#work`}>← All work</a></p>
     <h1 class="proj__title" data-proj-title>{d.title}</h1>
     <p class="proj__summary" data-reveal>{d.summary}</p>
     <div class="proj__cover" data-parallax>
-      {d.cover ? <Image src={d.cover} width={1600} alt={`${d.title} cover`} transition:name={`cover-${entry.id}`} /> : null}
+      {main ? <Image src={main} width={1600} alt={d.shot ? `${d.title} running` : `${d.title} cover`} transition:name={`cover-${entry.id}`} /> : null}
     </div>
     <dl class="facts mono" data-reveal>
       <div><dt>Year</dt><dd>{d.year}</dd></div>
@@ -33,10 +34,10 @@ const og = d.cover ? (await getImage({ src: d.cover, width: 1200, format: 'png' 
     </dl>
     <div class="prose" data-prose><Content /></div>
   </article>
-  <a class="next" href={`/projects/${next.id}`} data-next data-slug={next.id} aria-label={`Next project: ${next.data.title}`}>
+  <a class="next" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/projects/${next.id}/`} data-next data-slug={next.id} aria-label={`Next project: ${next.data.title}`}>
     <span class="mono dim">Next project</span>
     <div class="next__title">{next.data.title} →</div>
     {next.data.cover && <div class="next__strip" data-next-strip data-cursor-label="Open"><Image src={next.data.cover} width={1600} alt="" /></div>}
   </a>
-  <footer class="foot mono dim"><span>© Joshua Kevin</span><a class="link" href="/">Home</a></footer>
+  <footer class="foot mono dim"><span>© Joshua Kevin</span><a class="link" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/`}>Home</a></footer>
 </Layout>

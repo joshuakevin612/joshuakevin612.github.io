@@ -11,6 +11,8 @@ const projects = defineCollection({
       role: z.string(),
       stack: z.array(z.string()),
       cover: image().optional(),
+      // In-app screenshot shown on the project page; `cover` (the app's landing/hero) is what the carousel shows.
+      shot: image().optional(),
       live: z.string().url().optional(),
       repo: z.string().url().optional(),
       order: z.number(),

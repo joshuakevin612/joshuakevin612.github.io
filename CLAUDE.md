@@ -9,15 +9,20 @@ Joshua Kevin's developer portfolio: a static Astro 5 site whose hero is a scroll
 ## Commands
 
 ```bash
-npm run dev          # Astro dev server, http://localhost:4321 (also .claude/launch.json "dev")
-npm run build        # static build to dist/; also the only automated check (type + content schema errors surface here)
+npm run dev          # Astro dev server, http://localhost:4321/portfolio/ (also .claude/launch.json "dev")
+npm run build        # static build to dist/; content schema and .astro errors surface here
+npx tsc --noEmit     # type-checks src/scripts (the build does not)
 npm run preview      # serve dist/
 npm run frames       # after a Blender render: build public/film/mobile + rewrite src/data/film.json
 npm run placeholder  # overwrite film frames with 120 generated placeholders (destroys a real render in public/film)
-npm run covers       # regenerate abstract placeholder project covers
+npm run covers       # abstract placeholder cover for any project that has none; never overwrites an existing image
 ```
 
-There are no tests and no linter. Verify changes with `npm run build` plus a look in the browser.
+There are no tests and no linter. Verify changes with `npm run build` plus a look in the browser at phone, tablet and desktop widths.
+
+- `npx tsc --noEmit` currently reports one known error in `work.ts` (the raycast `meshes.indexOf(h.object as THREE.Mesh)` cast); anything else is new.
+- The dev server caches the content collection. After adding, removing or reordering project files, restart it before trusting what the carousel shows.
+- Everything animated runs off `requestAnimationFrame`. A hidden or background tab throttles it, so screenshots from a preview pane that is not on screen show half-finished transitions and a stuck preloader; that is not a bug in the site.
 
 Film render (Blender 5.3 is installed but not on PATH: `C:\Program Files\Blender Foundation\Blender 5.3\blender.exe`):
 
@@ -58,24 +63,46 @@ Typing animation in the film comes from one table (`KEY_EVENTS`), kept that way 
 `main.ts` is the single entry and owns lifecycle. The site uses Astro's `ClientRouter`, so every module must initialise on `astro:page-load` and fully tear down on `astro:before-swap` (ScrollTriggers, Lenis, RAF loops, Three.js renderers/textures, listeners via the `disposers` list). A module that leaks breaks back-navigation.
 
 - `film.ts` + `filmgl.ts`: damped playhead (drawn frame eases toward the scroll target and cross-blends neighbouring frames), streaming frame loader around the playhead, captions and theme blend driven by the same damped progress. `filmgl.ts` draws through a Three.js quad with pointer fluid distortion, parallax, grain and vignette; 2D canvas is the fallback.
-- `work.ts`: the "Selected work" stage, a curved Three.js carousel driven by page scroll, drag/swipe and arrow keys, with a synced DOM title overlay. A real `<ul>` of project links stays in the DOM for keyboard, no-WebGL and reduced-motion use.
+- `work.ts`: the "Selected work" stage, a curved, looping Three.js carousel with a synced DOM overlay (title, count, meta, progress bar). A real `<ul>` of project links stays in the DOM for keyboard, no-WebGL and reduced-motion use. See below.
 - `open.ts` / `next.ts`: the fill-viewport transition into a project page and the "Next project" footer.
 
 State that depends on scroll (theme, carousel position) is derived from the current scroll offset every frame, not from enter/leave events, so it is correct after reloads mid-page, anchor jumps and back-navigation. Keep new scroll-linked state on that model.
 
 `prefers-reduced-motion` disables Lenis and scrubbing and shows the last film frame as a static poster.
 
+### The carousel (`work.ts`)
+
+- **Position** is `scrollPos() + offset`. `scrollPos()` is the page scroll through the pinned stage (0 to N−1, re-read every frame); `offset` is moved by drag/swipe, arrow keys, clicking a side card and the resting snap. `work.ts` never scrolls the page: an earlier version snapped by calling `lenis.scrollTo`, which fought the user's scrolling.
+- **Looping** is done in the render, not the data: every per-card distance goes through `wrap()` (shortest signed distance round the loop), and indices through `mod()`. Positions are unbounded floats.
+- **Two indices on purpose.** Cards, the progress bar and click-to-open use `active`, from the eased position `cur`. The title, count and meta use `titleIdx`, from the un-eased `target`, so they head straight for the destination.
+- **Title swaps are coalesced** (`requestTitle` / `hideTitle` / `showTitle`, the `phase` state). A change hides the title once; the new one is built only after the destination has been stable for `SETTLE` ms. Rebuilding per project passed (SplitText is a DOM rebuild) was a visible stutter; do not go back to swapping on every index change.
+- **Layout is anchored to the title's font size** (`resize`). The card stops just above the title, because covers include light UI screenshots that made white title text unreadable when the card sat behind it. Long titles are therefore fitted with a `transform: scale` (`fitTitle`), not a font-size change. Portrait viewports get a wide 5:4 card so 16:10 covers are not cropped to a sliver.
+- Textures are uploaded with `renderer.initTexture` when they load, so a card's first visible frame does not hitch.
+- It must keep working for any project count, including 1 and 2.
+
 ### Content
 
-Projects are one Markdown file each in `src/content/projects/` with the cover image beside it; schema in `src/content.config.ts`, field reference in `README.md`. `order` drives both the carousel order and the wrapping "Next project" chain. `cover` is an optional `image()` (relative path, processed by Astro), `live`/`repo` must be valid URLs. Current projects: Veylith, Clyra (both still TODO text) and Clipfarm (`twitch.md`, real content). `src/pages/projects/[slug].astro` renders them. The carousel must keep working for any project count.
+One Markdown file per project in `src/content/projects/`, images beside it. Schema in `src/content.config.ts`, field reference in `README.md`. `order` drives both the carousel order and the wrapping "Next project" chain. `live`/`repo` must be valid URLs.
+
+Each project has up to two 1600×1000 images:
+
+- `cover` → `<slug>-hero.webp`: what the carousel, the "Next project" strip and the OG image use. It is the app's own landing page where one exists, otherwise generated title art (abstract geometry in the site's token colours plus the project name, centred so it survives cropping).
+- `shot` → `<slug>.webp`: an in-app screenshot shown on the project page (`[slug].astro` uses `shot ?? cover`). The open transition cross-fades the cover into it, because both carry the same view-transition name.
+
+Which projects get title art instead of a landing-page capture is the owner's decision, not a judgement call: currently Clipfarm, NeuroVasc-X, DevHub, OS Simulators, Marine Debris and Veylith. Clipfarm deliberately has no `shot` (its real output shows other people's faces). The title art was rendered ad hoc with headless Chrome so it could use the site's web font; there is no generator script for it in the repo, and `npm run covers` produces only the older title-less placeholders.
+
+There are thirteen projects, each written from its GitHub repo under `github.com/joshuakevin612`. Clipfarm lives in `twitch.md`; `os-simulators.md` covers three small repos in one entry and embeds two extra screenshots in its body. Project copy must only claim what the repo backs up (Veylith is described as an unfinished scaffold because it is one). Roles were stated by the owner; projects marked "Solo developer" are ones whose repo has a single contributor.
+
+Project page titles are split by word then character in `main.ts` and shrunk until the longest word fits, so they wrap only between words on narrow screens.
 
 ### Design tokens (`src/styles/global.css`)
 
-Light "desk" theme and dark "studio" theme as CSS variables on `<html>`. The only saturated colour anywhere is `--accent` vermilion `#FF4A1C` (also the keycap colour in the render); it is reserved for interactive/active states. No gradients or second accent.
+Light "desk" theme and dark "studio" theme as CSS variables on `<html>`. The only saturated colour anywhere is `--accent` vermilion `#FF4A1C` (also the keycap colour in the render); it is reserved for interactive/active states. No gradients or second accent. The fixed nav is transparent over the home film and gets a blurred backing bar only on project pages, where long text scrolls beneath it.
 
 ## Known gaps
 
-- Placeholder content: Veylith and Clyra project text, contact email (`hello@example.com`), social links, `site` in `astro.config.mjs`, and a missing `public/og.png`.
-- Unverified: touch swipe and real mouse-wheel feel, reduced-motion and no-WebGL fallbacks, small-viewport caption layout over the film.
-- Not a git repository yet (`.gitignore` already excludes `node_modules`, `dist`, `.astro`; the ~29 MB of film frames in `public/film` are committed content, not generated at build).
+- Deployed by `.github/workflows/deploy.yml` to GitHub Pages on every push to `main`, at `https://joshuakevin612.github.io/portfolio/`. The site therefore lives under `base: '/portfolio'`: never write a root-absolute path (`/film/...`, `/projects/...`, `/#work`); prefix with `import.meta.env.BASE_URL` as the existing links do. Internal project links end in `/` so Pages does not redirect mid-transition.
+- Placeholder content: a missing `public/og.png`; no LinkedIn link (URL unknown).
+- Unverified on real hardware: touch swipe, mouse-wheel feel and carousel smoothness on a real GPU (checks so far were emulated viewports in headless Chrome), plus the reduced-motion and no-WebGL fallbacks and the small-viewport caption layout over the film.
+- The ~29 MB of film frames in `public/film` are committed content, not generated at build.
 - `README.md` has an encoding glitch in its title line (mojibake dash).

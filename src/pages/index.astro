@@ -9,7 +9,7 @@ const items = await Promise.all(projects.map(async (p) => ({
   preview: p.data.cover ? (await getImage({ src: p.data.cover, width: 1400, format: 'webp' })).src : '',
 })));
 const data = items.map(({ p, preview }) => ({ slug: p.id, title: p.data.title, year: p.data.year, role: p.data.role, stack: p.data.stack, img: preview }));
-const skills = ['TypeScript', 'Astro', 'React', 'Node.js', 'WebGL', 'GSAP', 'Three.js', 'PostgreSQL', 'Design systems', 'Accessibility'];
+const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreSQL', 'PyTorch', 'Docker', 'WebSockets', 'Three.js'];
 ---
 <Layout title="Joshua Kevin — Software developer" theme="light">
   <div class="preloader" data-preloader aria-hidden="true">
@@ -37,7 +37,7 @@ const skills = ['TypeScript', 'Astro', 'React', 'Node.js', 'WebGL', 'GSAP', 'Thr
 
   <section class="intro" aria-labelledby="intro-h">
     <span class="mono dim" id="intro-h" data-reveal>About</span>
-    <p class="statement" data-lines>I'm a software developer who is just starting out and still <em>learning</em>. I build projects to understand how things work, and each one leaves me a little better than the last.</p>
+    <p class="statement" data-lines>I'm a computer science student at SRM Chennai who learns by <em>building</em>. Full-stack web apps, machine learning systems and simulators, from hackathon prototypes to tools I run myself.</p>
     <div class="marquee" data-marquee aria-hidden="true">
       <div class="marquee__track" data-marquee-track>
         {[0, 1].map(() => (
@@ -62,7 +62,7 @@ const skills = ['TypeScript', 'Astro', 'React', 'Node.js', 'WebGL', 'GSAP', 'Thr
       </div>
       <ul class="work__list" data-work-list>
         {items.map(({ p, preview }) => (
-          <li><a class="card" href={`/projects/${p.id}`}>
+          <li><a class="card" href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/projects/${p.id}/`}>
             {p.data.cover && <Image src={p.data.cover} width={800} alt="" />}
             <span class="card__t">{p.data.title}</span>
             <span class="mono dim">{p.data.year} · {p.data.role}</span>
@@ -75,15 +75,12 @@ const skills = ['TypeScript', 'Astro', 'React', 'Node.js', 'WebGL', 'GSAP', 'Thr
   <section class="contact" id="contact" aria-labelledby="contact-h">
     <h2 class="mono dim" id="contact-h" style="font-weight:400">Contact</h2>
     <div>
-      <!-- TODO: replace hello@example.com with the real address -->
-      <a class="contact__cta" href="mailto:hello@example.com" data-magnetic>Let's talk<span class="arrow">&nbsp;↗</span></a>
+      <a class="contact__cta" href="mailto:joshuakevin612@gmail.com" data-magnetic>Let's talk<span class="arrow">&nbsp;↗</span></a>
     </div>
     <div class="contact__foot mono">
       <ul class="socials">
-        <!-- TODO: real social URLs -->
-        <li><a class="link" href="https://github.com/" rel="noopener">GitHub</a></li>
-        <li><a class="link" href="https://linkedin.com/" rel="noopener">LinkedIn</a></li>
-        <li><a class="link" href="https://x.com/" rel="noopener">X</a></li>
+        <li><a class="link" href="https://github.com/joshuakevin612" rel="noopener">GitHub</a></li>
+        <li><a class="link" href="mailto:joshuakevin612@gmail.com">Email</a></li>
       </ul>
       <span class="dim">Local time <span data-time>--:--:--</span> IST</span>
       <span class="dim">© {new Date().getFullYear()} Joshua Kevin</span>

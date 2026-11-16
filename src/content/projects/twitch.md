@@ -4,8 +4,9 @@ summary: "Turns the fastest-growing Twitch clips into captioned vertical YouTube
 year: 2026
 role: "Solo developer"
 stack: ["Python", "faster-whisper", "Ollama", "ffmpeg", "OpenCV", "Twitch API", "YouTube Data API", "SQLite"]
-cover: ./twitch.webp
-order: 3
+cover: ./twitch-hero.webp
+repo: "https://github.com/joshuakevin612/clipfarm"
+order: 5
 ---
 
 Clipfarm is a hands-off pipeline that finds the clips taking off on Twitch and republishes them as captioned 9:16 Shorts, with no editing in between.
