@@ -1,0 +1,46 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import '../styles/global.css';
+interface Props { title: string; description?: string; theme?: 'light' | 'dark'; image?: string; }
+const { title, description = 'Joshua Kevin is a software developer who is just starting out, learning by building real projects.', theme = 'dark', image = '/og.png' } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const og = new URL(image, Astro.site);
+const isHome = Astro.url.pathname === '/';
+---
+<!doctype html>
+<html lang="en" data-theme={theme} data-pre={isHome ? '' : undefined}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="theme-color" content="#0B0B0C" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={og} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23FF4A1C'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <ClientRouter />
+  </head>
+  <body>
+    <div class="progress" data-progress aria-hidden="true"></div>
+    <div class="cursor" data-cursor aria-hidden="true"></div>
+    <header class="nav">
+      <a href="/" class="logo" data-logo aria-label="Joshua Kevin, home">J<span>K</span></a>
+      <nav aria-label="Primary">
+        <ul class="mono">
+          <li><a class="link" href="/#work">Work</a></li>
+          <li><a class="link" href="/#contact">Contact</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main><slot /></main>
+    <script>import '../scripts/main';</script>
+  </body>
+</html>

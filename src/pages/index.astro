@@ -1,0 +1,92 @@
+---
+import { getCollection } from 'astro:content';
+import { getImage, Image } from 'astro:assets';
+import Layout from '../layouts/Layout.astro';
+
+const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+const items = await Promise.all(projects.map(async (p) => ({
+  p,
+  preview: p.data.cover ? (await getImage({ src: p.data.cover, width: 1400, format: 'webp' })).src : '',
+})));
+const data = items.map(({ p, preview }) => ({ slug: p.id, title: p.data.title, year: p.data.year, role: p.data.role, stack: p.data.stack, img: preview }));
+const skills = ['TypeScript', 'Astro', 'React', 'Node.js', 'WebGL', 'GSAP', 'Three.js', 'PostgreSQL', 'Design systems', 'Accessibility'];
+---
+<Layout title="Joshua Kevin — Software developer" theme="light">
+  <div class="preloader" data-preloader aria-hidden="true">
+    <span class="pre__label mono">Loading</span>
+    <div class="pre__count" data-pre-count>0</div>
+    <div class="pre__mark" data-pre-mark>J<span>K</span></div>
+  </div>
+
+  <section class="hero" data-film aria-label="Introduction">
+    <div class="hero__sticky">
+      <canvas data-film-canvas aria-hidden="true"></canvas>
+      <div class="beat" data-beat="1">
+        <div class="row">
+          <h1 data-hero-title>Joshua Kevin</h1>
+          <p class="mono" data-hero-role>Software developer</p>
+        </div>
+      </div>
+      <div class="beat" data-beat="2"><span class="mono dim">02 / Learning</span><h2>Learning by building real things.</h2></div>
+      <div class="beat" data-beat="3"><span class="mono dim">03 / Building</span><h2>Every project teaches me something new.</h2></div>
+      <div class="beat" data-beat="4"><span class="mono dim">04 / Curious</span><h2>Curious about how things work, and how to make them better.</h2></div>
+      <div class="beat" data-beat="5"><span class="mono dim">05 / Just starting</span><p>This is the beginning. Scroll on.</p></div>
+      <span class="hint mono" aria-hidden="true">Scroll</span>
+    </div>
+  </section>
+
+  <section class="intro" aria-labelledby="intro-h">
+    <span class="mono dim" id="intro-h" data-reveal>About</span>
+    <p class="statement" data-lines>I'm a software developer who is just starting out and still <em>learning</em>. I build projects to understand how things work, and each one leaves me a little better than the last.</p>
+    <div class="marquee" data-marquee aria-hidden="true">
+      <div class="marquee__track" data-marquee-track>
+        {[0, 1].map(() => (
+          <div class="marquee__group">{skills.map((s) => <span class="marquee__item">{s}</span>)}</div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="work" id="work" data-work data-items={JSON.stringify(data)} aria-labelledby="work-h">
+    <div class="work__pin" data-work-pin>
+      <div class="work__head mono"><h2 id="work-h" class="mono" style="font-weight:400">Selected work</h2><span class="dim">({String(items.length).padStart(2, '0')})</span></div>
+      <canvas class="work__canvas" data-work-canvas aria-hidden="true"></canvas>
+      <div class="work__ui" data-work-ui aria-hidden="true">
+        <span class="work__count mono dim" data-work-count></span>
+        <div class="work__bottom">
+          <h3 class="work__title" data-work-title></h3>
+          <div class="work__meta mono" data-work-meta></div>
+          <div class="work__bar" data-work-bar></div>
+          <span class="work__hint mono">Scroll, drag or use arrow keys</span>
+        </div>
+      </div>
+      <ul class="work__list" data-work-list>
+        {items.map(({ p, preview }) => (
+          <li><a class="card" href={`/projects/${p.id}`}>
+            {p.data.cover && <Image src={p.data.cover} width={800} alt="" />}
+            <span class="card__t">{p.data.title}</span>
+            <span class="mono dim">{p.data.year} · {p.data.role}</span>
+          </a></li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="contact" id="contact" aria-labelledby="contact-h">
+    <h2 class="mono dim" id="contact-h" style="font-weight:400">Contact</h2>
+    <div>
+      <!-- TODO: replace hello@example.com with the real address -->
+      <a class="contact__cta" href="mailto:hello@example.com" data-magnetic>Let's talk<span class="arrow">&nbsp;↗</span></a>
+    </div>
+    <div class="contact__foot mono">
+      <ul class="socials">
+        <!-- TODO: real social URLs -->
+        <li><a class="link" href="https://github.com/" rel="noopener">GitHub</a></li>
+        <li><a class="link" href="https://linkedin.com/" rel="noopener">LinkedIn</a></li>
+        <li><a class="link" href="https://x.com/" rel="noopener">X</a></li>
+      </ul>
+      <span class="dim">Local time <span data-time>--:--:--</span> IST</span>
+      <span class="dim">© {new Date().getFullYear()} Joshua Kevin</span>
+    </div>
+  </section>
+</Layout>

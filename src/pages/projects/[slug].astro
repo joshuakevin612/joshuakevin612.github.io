@@ -1,0 +1,42 @@
+---
+import { getCollection, render } from 'astro:content';
+import { Image, getImage } from 'astro:assets';
+import Layout from '../../layouts/Layout.astro';
+
+export async function getStaticPaths() {
+  const all = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+  return all.map((entry, i) => ({ params: { slug: entry.id }, props: { entry, next: all[(i + 1) % all.length] } }));
+}
+const { entry, next } = Astro.props;
+const { Content } = await render(entry);
+const d = entry.data;
+const og = d.cover ? (await getImage({ src: d.cover, width: 1200, format: 'png' })).src : undefined;
+---
+<Layout title={`${d.title} — Joshua Kevin`} description={d.summary} theme="dark" image={og}>
+  <article class="proj">
+    <p class="mono dim" data-reveal><a class="link" href="/#work">← All work</a></p>
+    <h1 class="proj__title" data-proj-title>{d.title}</h1>
+    <p class="proj__summary" data-reveal>{d.summary}</p>
+    <div class="proj__cover" data-parallax>
+      {d.cover ? <Image src={d.cover} width={1600} alt={`${d.title} cover`} transition:name={`cover-${entry.id}`} /> : null}
+    </div>
+    <dl class="facts mono" data-reveal>
+      <div><dt>Year</dt><dd>{d.year}</dd></div>
+      <div><dt>Role</dt><dd>{d.role}</dd></div>
+      <div><dt>Stack</dt><dd>{d.stack.join(', ')}</dd></div>
+      {(d.live || d.repo) && (
+        <div><dt>Links</dt><dd>
+          {d.live && <a class="link" href={d.live} rel="noopener">Live ↗</a>}{d.live && d.repo && ' · '}
+          {d.repo && <a class="link" href={d.repo} rel="noopener">Code ↗</a>}
+        </dd></div>
+      )}
+    </dl>
+    <div class="prose" data-prose><Content /></div>
+  </article>
+  <a class="next" href={`/projects/${next.id}`} data-next data-slug={next.id} aria-label={`Next project: ${next.data.title}`}>
+    <span class="mono dim">Next project</span>
+    <div class="next__title">{next.data.title} →</div>
+    {next.data.cover && <div class="next__strip" data-next-strip data-cursor-label="Open"><Image src={next.data.cover} width={1600} alt="" /></div>}
+  </a>
+  <footer class="foot mono dim"><span>© Joshua Kevin</span><a class="link" href="/">Home</a></footer>
+</Layout>
