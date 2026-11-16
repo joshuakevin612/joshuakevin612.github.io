@@ -1,0 +1,29 @@
+---
+import Layout from '../layouts/Layout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreSQL', 'PyTorch', 'Docker', 'WebSockets', 'Three.js'];
+---
+<Layout title="About — Joshua Kevin" description="About Joshua Kevin, a computer science student at SRM Chennai, and how to get in touch." theme="dark">
+  <article class="proj about">
+    <p class="mono dim" data-reveal><a class="link" href={`${base}/`}>← Home</a></p>
+    <h1 class="proj__title" data-proj-title>About me</h1>
+    <p class="proj__summary" data-reveal>A computer science student who learns by building.</p>
+
+    <div class="prose" data-prose>
+      <p>I'm Joshua Kevin, a computer science student at SRM Chennai. I learn best by building things end to end: picking a problem, working out what the software has to do, and getting it to the point where it actually runs. Most of what I know came from doing that again and again.</p>
+      <p>So far that has meant full-stack web apps, machine learning systems and operating system simulators, some built on my own and some as hackathon prototypes. I mostly work in Python and TypeScript, with FastAPI, React and Next.js on the web side and PyTorch for the ML work. I'm just starting out, and I'm looking for harder problems to learn from.</p>
+    </div>
+
+    <dl class="details mono">
+      <div data-reveal><dt>Working with</dt><dd class="small">{skills.join(', ')}</dd></div>
+    </dl>
+
+    <h2 class="about__h mono dim" id="contact" data-reveal>Get in touch</h2>
+    <dl class="details mono">
+      <div data-reveal><dt>Email</dt><dd><a class="link" href="mailto:joshuakevin612@gmail.com">joshuakevin612@gmail.com</a></dd></div>
+      <div data-reveal><dt>Phone</dt><dd><a class="link" href="tel:+919360449747">+91 93604 49747</a></dd></div>
+      <div data-reveal><dt>GitHub</dt><dd><a class="link" href="https://github.com/joshuakevin612" rel="noopener">joshuakevin612 ↗</a></dd></div>
+    </dl>
+  </article>
+  <footer class="foot mono dim"><span>© Joshua Kevin</span><a class="link" href={`${base}/#work`}>Selected work</a></footer>
+</Layout>

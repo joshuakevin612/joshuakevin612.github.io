@@ -95,6 +95,12 @@ There are thirteen projects, each written from its GitHub repo under `github.com
 
 Project page titles are split by word then character in `main.ts` and shrunk until the longest word fits, so they wrap only between words on narrow screens.
 
+### Scroll length and the About page
+
+How far the visitor scrolls before the contact section is set by two CSS heights in `global.css`: `.hero` (400vh, the film) and `.work--gl` (one screen plus 30svh per further project). The owner asked for these to be shortened from 500vh and a full screen per project; do not lengthen them without asking.
+
+The home contact section's "Let's talk" links to `src/pages/about.astro` (bio, stack, email, phone, GitHub) rather than a `mailto:`. That page reuses the `.proj` article classes, so it gets the project-page title split and nav backing. The bio must only claim what the owner has stated.
+
 ### Design tokens (`src/styles/global.css`)
 
 Light "desk" theme and dark "studio" theme as CSS variables on `<html>`. The only saturated colour anywhere is `--accent` vermilion `#FF4A1C` (also the keycap colour in the render); it is reserved for interactive/active states. No gradients or second accent. The fixed nav is transparent over the home film and gets a blurred backing bar only on project pages, where long text scrolls beneath it.

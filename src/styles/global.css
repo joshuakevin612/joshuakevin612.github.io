@@ -62,7 +62,7 @@ html[data-pre] .preloader { display: grid; }
 .pre__label { position: absolute; top: 1.3rem; left: var(--gutter); }
 
 /* hero */
-.hero { position: relative; height: 500vh; }
+.hero { position: relative; height: 400vh; }
 .hero__sticky { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; }
 .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .beat { isolation: isolate; will-change: opacity, transform, filter; position: absolute; left: var(--gutter); right: var(--gutter); bottom: clamp(2rem, 8vh, 5rem); display: grid; gap: .8rem; pointer-events: none; }
@@ -106,7 +106,8 @@ html.reduced .hint { display: none; }
 .card__t { font-size: var(--fs-xl); line-height: 1; letter-spacing: -.04em; font-weight: 700; }
 .card:hover .card__t { color: var(--accent); }
 /* WebGL mode: pinned, full-viewport */
-.work--gl { padding: 0; height: calc(var(--n) * 100svh); }
+/* one screen for the pinned stage plus 30% of a screen of scroll per further project */
+.work--gl { padding: 0; height: calc(100svh + (var(--n) - 1) * 30svh); }
 .work--gl .work__pin { position: sticky; top: 0; height: 100svh; overflow: hidden; }
 .work--gl .work__head { position: absolute; top: 1.4rem; left: 50%; transform: translateX(-50%); z-index: 2; margin: 0; gap: 1.5rem; pointer-events: none; }
 .work--gl .work__canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; touch-action: pan-y; cursor: grab; }
@@ -128,12 +129,23 @@ html.reduced .hint { display: none; }
 
 /* contact */
 .contact { padding: clamp(6rem, 16vh, 12rem) var(--gutter) 2rem; min-height: 100svh; display: flex; flex-direction: column; justify-content: space-between; gap: 3rem; }
+.contact__lede { font-size: var(--fs-xl); line-height: 1.02; letter-spacing: -.035em; font-weight: 500; max-width: 18ch; }
+.contact__sub { display: block; margin-top: .5rem; }
+.details { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 2rem 1.5rem; border-top: 1px solid var(--line); padding-top: 1.5rem; }
+.details dt { color: var(--text-2); margin-bottom: .5rem; }
+.details dd { font-family: var(--display); text-transform: none; font-size: clamp(1.1rem, .9rem + .7vw, 1.75rem); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; overflow-wrap: anywhere; }
+.details dd.small { font-size: 1.15rem; font-weight: 400; letter-spacing: 0; line-height: 1.5; }
 .contact__cta { display: inline-block; font-size: var(--fs-huge); line-height: .9; letter-spacing: -.06em; font-weight: 800; padding: 2rem 0; transition: color .3s; }
 .contact__cta:hover { color: var(--accent); }
 .contact__cta .arrow { color: var(--accent); display: inline-block; transition: transform .5s cubic-bezier(.7,0,.2,1); }
 .contact__cta:hover .arrow { transform: translate(.08em, -.08em); }
 .contact__foot { display: flex; flex-wrap: wrap; gap: 1.5rem 3rem; justify-content: space-between; align-items: end; border-top: 1px solid var(--line); padding-top: 1.5rem; }
 .socials { list-style: none; display: flex; gap: 1.5rem; flex-wrap: wrap; }
+
+/* about page (shares .proj title, summary and nav backing) */
+.about .prose { margin-top: clamp(3rem, 8vw, 6rem); margin-bottom: clamp(4rem, 10vh, 8rem); }
+.about__h { display: block; margin-bottom: 1.5rem; font-weight: 400; }
+.about .details { margin-bottom: clamp(4rem, 10vh, 8rem); }
 
 /* project page */
 .proj { padding: clamp(7rem, 16vh, 10rem) var(--gutter) 0; }

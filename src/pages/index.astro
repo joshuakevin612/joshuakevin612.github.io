@@ -9,6 +9,7 @@ const items = await Promise.all(projects.map(async (p) => ({
   preview: p.data.cover ? (await getImage({ src: p.data.cover, width: 1400, format: 'webp' })).src : '',
 })));
 const data = items.map(({ p, preview }) => ({ slug: p.id, title: p.data.title, year: p.data.year, role: p.data.role, stack: p.data.stack, img: preview }));
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreSQL', 'PyTorch', 'Docker', 'WebSockets', 'Three.js'];
 ---
 <Layout title="Joshua Kevin — Software developer" theme="light">
@@ -75,12 +76,19 @@ const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreS
   <section class="contact" id="contact" aria-labelledby="contact-h">
     <h2 class="mono dim" id="contact-h" style="font-weight:400">Contact</h2>
     <div>
-      <a class="contact__cta" href="mailto:joshuakevin612@gmail.com" data-magnetic>Let's talk<span class="arrow">&nbsp;↗</span></a>
+      <p class="contact__lede" data-lines>Have a project, an idea or a question? Say hello.</p>
+      <a class="contact__cta" href={`${base}/about/`} data-magnetic>Let's talk<span class="arrow">&nbsp;→</span></a>
+      <span class="contact__sub mono dim">About me and how to reach me</span>
     </div>
+    <dl class="details mono">
+      <div data-reveal><dt>Email</dt><dd><a class="link" href="mailto:joshuakevin612@gmail.com">joshuakevin612@gmail.com</a></dd></div>
+      <div data-reveal><dt>Phone</dt><dd><a class="link" href="tel:+919360449747">+91 93604 49747</a></dd></div>
+      <div data-reveal><dt>Based in</dt><dd>Chennai, India</dd></div>
+    </dl>
     <div class="contact__foot mono">
       <ul class="socials">
         <li><a class="link" href="https://github.com/joshuakevin612" rel="noopener">GitHub</a></li>
-        <li><a class="link" href="mailto:joshuakevin612@gmail.com">Email</a></li>
+        <li><a class="link" href={`${base}/about/`}>About</a></li>
       </ul>
       <span class="dim">Local time <span data-time>--:--:--</span> IST</span>
       <span class="dim">© {new Date().getFullYear()} Joshua Kevin</span>
