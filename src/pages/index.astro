@@ -12,7 +12,7 @@ const data = items.map(({ p, preview }) => ({ slug: p.id, title: p.data.title, y
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 /** projects the page scroll walks through before moving on to contact; the rest are reached by drag, keys and clicks */
 const WORK_SCROLL_CAP = 5;
-const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreSQL', 'PyTorch', 'Docker', 'WebSockets', 'Three.js'];
+const kinds = ['Full-stack web apps', 'Machine learning', 'Simulators', 'Hackathon prototypes', 'Developer tools'];
 ---
 <Layout title="Joshua Kevin — Software developer" theme="light">
   <div class="preloader" data-preloader aria-hidden="true">
@@ -39,12 +39,12 @@ const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreS
   </section>
 
   <section class="intro" aria-labelledby="intro-h">
-    <span class="mono dim" id="intro-h" data-reveal>About</span>
-    <p class="statement" data-lines>I'm a computer science student at SRM Chennai who learns by <em>building</em>. Full-stack web apps, machine learning systems and simulators, from hackathon prototypes to tools I run myself.</p>
+    <span class="mono dim" id="intro-h" data-reveal>What I build</span>
+    <p class="statement" data-lines>Things I've <em>built</em>, from hackathon prototypes to tools I run myself. Each one taught me something the last one didn't.</p>
     <div class="marquee" data-marquee aria-hidden="true">
       <div class="marquee__track" data-marquee-track>
         {[0, 1].map(() => (
-          <div class="marquee__group">{skills.map((s) => <span class="marquee__item">{s}</span>)}</div>
+          <div class="marquee__group">{kinds.map((s) => <span class="marquee__item">{s}</span>)}</div>
         ))}
       </div>
     </div>
@@ -89,9 +89,7 @@ const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreS
     </dl>
     <div class="contact__foot mono">
       <ul class="socials">
-        <li><a class="link" href="https://github.com/joshuakevin612" rel="noopener">GitHub</a></li>
-        <li><a class="link" href={`${base}/about/`}>About</a></li>
-      </ul>
+        <li><a class="link" href="https://github.com/joshuakevin612" rel="noopener">GitHub</a></li>      </ul>
       <span class="dim">Local time <span data-time>--:--:--</span> IST</span>
       <span class="dim">© {new Date().getFullYear()} Joshua Kevin</span>
     </div>
