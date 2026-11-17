@@ -29,6 +29,9 @@ a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 ::selection { background: var(--accent); color: #0B0B0C; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+main:focus { outline: none; }
+.skip { position: fixed; top: 1rem; left: var(--gutter); z-index: 400; padding: .6rem 1rem; background: var(--text); color: var(--bg); transform: translateY(-200%); }
+.skip:focus { transform: none; }
 .mono { font-family: var(--mono); font-size: var(--fs-mono); letter-spacing: .04em; text-transform: uppercase; }
 .dim { color: var(--text-2); }
 html.has-cursor, html.has-cursor * { cursor: none !important; }
@@ -114,6 +117,8 @@ html.reduced .hint { display: none; }
 .work--gl .work__canvas.is-drag { cursor: grabbing; }
 .work--gl .work__ui { display: flex; flex-direction: column; justify-content: space-between; position: absolute; inset: 0; padding: 5rem var(--gutter) clamp(1.5rem, 5vh, 3rem); pointer-events: none; z-index: 2; }
 .work--gl .work__list { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; display: block; }
+/* the real links are visually hidden, so show keyboard focus on the visible title block instead */
+.work--gl:has(.work__list a:focus-visible) .work__bottom { outline: 2px solid var(--accent); outline-offset: .8rem; }
 .work__count { align-self: flex-end; }
 .work__count b { color: var(--accent); font-weight: 500; }
 .work__bottom { display: grid; gap: 1.2rem; }

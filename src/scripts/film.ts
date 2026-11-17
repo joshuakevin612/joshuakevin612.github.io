@@ -200,8 +200,13 @@ export function clearTheme(html = document.documentElement, keepMemo = false) {
 /** Hero scroll progress from the DOM only (used before the film is ready, e.g. load at any offset). */
 export function heroProgress(root: HTMLElement) {
   const r = root.getBoundingClientRect();
-  return clamp01(-r.top / Math.max(1, r.height - innerHeight));
+  return toFilm(-r.top / Math.max(1, r.height - innerHeight));
 }
+/** The film finishes at FILM_END of the pinned scroll; the rest is a dwell on the last frame, so the damped playhead
+ *  lands on the final shot before the pin releases (otherwise a fast scroll carries the hero away mid push-in). */
+const FILM_END = 0.86;
+const PRELOAD_TIMEOUT = 12000; // ms
+const toFilm = (scroll: number) => clamp01(scroll / FILM_END);
 
 // ------------------------------------------------------------------ captions
 // [start, end] in film progress; beat 1 = workspace, 2 = to the keyboard, (launch has none), 3 = spin, 4 = liquid, 5 = push-in
@@ -249,10 +254,10 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   let snap = true; // until the intro finishes, follow the scroll exactly (load at any offset / anchor jump)
   const st = reduced ? null : ScrollTrigger.create({
     trigger: root, start: 'top top', end: 'bottom bottom',
-    onUpdate: (s) => { target = s.progress; },
-    onRefresh: (s) => { target = s.progress; if (snap) pos = target * (N - 1); },
+    onUpdate: (s) => { target = toFilm(s.progress); },
+    onRefresh: (s) => { target = toFilm(s.progress); if (snap) pos = target * (N - 1); },
   });
-  if (st) { target = st.progress; pos = target * (N - 1); cleanups.push(() => st.kill()); }
+  if (st) { target = toFilm(st.progress); pos = target * (N - 1); cleanups.push(() => st.kill()); }
 
   // ---- load: blobs (start window + coarse set first), proxies, start window decode; the preloader waits for exactly that
   const s = createStore(pickKey(), tier, reduced ? N - 1 : -1);
@@ -278,11 +283,15 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     const check = () => {
       let done = 0;
       const total = startSet.length + coarse.length;
-      for (const i of startSet) if (s.ds[i] >= 2) done++;
-      for (const i of coarse) if (s.bs[i] >= 2 && s.ps[i] >= 2) done++;
+      // a frame whose fetch failed (bs 3) counts as done: one 404 must not hold the preloader forever
+      for (const i of startSet) if (s.ds[i] >= 2 || s.bs[i] === 3) done++;
+      for (const i of coarse) if (s.bs[i] === 3 || (s.bs[i] >= 2 && s.ps[i] >= 2)) done++;
       if (showPre && countEl) gsap.to(counter, { v: (done / Math.max(1, total)) * 100, duration: 0.6, ease: 'power2.out', overwrite: true, onUpdate: () => { countEl.textContent = String(Math.round(counter.v)); } });
-      if (done === total || dead) { s.onProgress = null; res(); }
+      if (done === total || dead || timedOut) { s.onProgress = null; clearTimeout(timer); res(); }
     };
+    let timedOut = false;
+    // slow or broken network: stop waiting and let the playback loop stream the rest (it falls back to proxies)
+    const timer = setTimeout(() => { timedOut = true; check(); }, PRELOAD_TIMEOUT);
     s.onProgress = check;
     pumpFetch(s);
     check();

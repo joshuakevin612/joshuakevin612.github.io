@@ -6,7 +6,7 @@ Astro 5 + GSAP (ScrollTrigger, SplitText) + Lenis + Three.js.
 
 ```
 npm install
-npm run dev        # http://localhost:4321
+npm run dev        # http://localhost:4321/portfolio/
 npm run build      # static output in dist/
 npm run preview
 ```

@@ -10,7 +10,7 @@ gsap.registerPlugin(ScrollTrigger, SplitText);
 if (import.meta.env.DEV) (window as any).__ST = ScrollTrigger;
 
 let active = false;
-let dead = false;
+let gen = 0; // bumped by dispose(); an init() that awaited across a page swap sees a newer generation and bails
 let lenis: Lenis | null = null;
 let ctx: gsap.Context | null = null;
 let disposers: Array<() => void> = [];
@@ -23,7 +23,9 @@ const on = (t: EventTarget, ev: string, fn: any, o?: any) => { t.addEventListene
 
 async function init() {
   if (active) return;
-  active = true; dead = false;
+  active = true;
+  const my = gen;
+  const dead = () => my !== gen;
   const root = document.documentElement;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const fine = matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -102,6 +104,7 @@ async function init() {
       };
       const leave = () => gsap.to(el, { x: 0, y: 0, duration: 1, ease: 'elastic.out(1, 0.4)' });
       on(el, 'pointermove', move); on(el, 'pointerleave', leave);
+      disposers.push(() => gsap.killTweensOf(el));
     });
   }
 
@@ -128,7 +131,7 @@ async function init() {
   if (cover && !reduced) add(() => { gsap.fromTo(cover, { yPercent: -7 }, { yPercent: 7, ease: 'none', scrollTrigger: { trigger: '[data-parallax]', scrub: true, start: 'top bottom', end: 'bottom top' } }); });
 
   await document.fonts.ready;
-  if (dead) return;
+  if (dead()) return;
 
   // split text (lines on scroll, project title chars on load)
   if (!reduced) {
@@ -180,7 +183,7 @@ async function init() {
   // film
   if (isHome) {
     const d = await initFilm({ lenis, reduced, add });
-    if (dead) { d?.(); return; }
+    if (dead()) { d?.(); return; }
     if (d) disposers.push(d);
   }
 
@@ -189,7 +192,7 @@ async function init() {
 
 function dispose() {
   if (!active) return;
-  active = false; dead = true;
+  active = false; gen++;
   disposers.forEach((d) => { try { d(); } catch {} });
   disposers = [];
   ScrollTrigger.getAll().forEach((s) => s.kill());

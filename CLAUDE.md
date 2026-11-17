@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What this is
 
 Joshua Kevin's developer portfolio: a static Astro 5 site whose hero is a scroll-scrubbed 3D film (pre-rendered in Blender, played back as a WebP frame sequence through WebGL), followed by an interactive WebGL project carousel. Motion is the product; treat smoothness and visual polish as requirements, not extras.
@@ -41,7 +39,7 @@ Default output is `public/film/desktop/`. Render to a staging dir with `--out`, 
 
 - `blender/build_scene.py` builds the whole scene procedurally (no external assets) and renders `f_0001.webp … f_0480.webp`.
 - `scripts/frames.mjs` derives the mobile set and writes `src/data/film.json` (`count`, `desktop`/`mobile` sizes). Site code must read count and sizes from that file, never hard-code them.
-- `src/scripts/film.ts` maps scroll progress (0–1) over the pinned hero to a frame position.
+- `src/scripts/film.ts` maps scroll progress over the pinned hero to a frame position. The film completes at `FILM_END` (0.86) of the pin and holds on the last frame for the rest, so the damped playhead lands before the hero scrolls away (the owner reported scrolling past mid push-in). Progress values below are film progress, after that mapping.
 
 The beat timing is duplicated on both sides and must be changed together:
 
@@ -54,15 +52,15 @@ The beat timing is duplicated on both sides and must be changed together:
 | Liquid ripple | 331–400 | 0.69–0.83 |
 | Push-in to JK | 401–480 | 0.83–1 |
 
-The page's light-to-dark theme change is tied to the same timeline: `film.ts` interpolates the theme CSS variables across progress 0.075–0.115 (`THEME_A`/`THEME_B`) and flips `data-theme` at the midpoint, matching the frames where the sun goes down in the render (the window is short on purpose: mid-blend text is grey and hard to read over dusk). The scene is a gaming rig by a window; its RGB is a full hue wheel travelling across the hardware (owner's choice, the one exception to the vermilion-only rule below; the JK keycap stays vermilion), driven per frame from one function so frames render independently. The render uses the Standard view transform so the studio background is exactly `#0B0B0C`, the page's dark background; keep that if lighting is changed.
+The page's light-to-dark theme change is tied to the same timeline: `film.ts` interpolates the theme CSS variables across progress 0.075–0.115 (`THEME_A`/`THEME_B`) and flips `data-theme` at the midpoint, matching the frames where the sun goes down in the render (kept short: mid-blend text is hard to read). The rig's RGB is a full hue wheel (owner's choice, the one exception to the vermilion-only rule; the JK keycap stays vermilion), driven per frame from one function so frames render independently. The render uses the Standard view transform so the studio background is exactly `#0B0B0C`, the page's dark background; keep that if lighting is changed.
 
-Typing animation in the film comes from one table (`KEY_EVENTS`), kept that way so a hand rig can be driven from it later. There is deliberately no hand yet.
+Typing animation comes from one table (`KEY_EVENTS`) so a hand rig can be driven from it later; there is deliberately no hand yet.
 
 ### Client runtime (`src/scripts/`)
 
-`main.ts` is the single entry and owns lifecycle. The site uses Astro's `ClientRouter`, so every module must initialise on `astro:page-load` and fully tear down on `astro:before-swap` (ScrollTriggers, Lenis, RAF loops, Three.js renderers/textures, listeners via the `disposers` list). A module that leaks breaks back-navigation.
+`main.ts` is the single entry and owns lifecycle. After every `await`, `init()` checks its `gen` counter and bails if the page was swapped meanwhile. The site uses Astro's `ClientRouter`, so every module must initialise on `astro:page-load` and fully tear down on `astro:before-swap` (ScrollTriggers, Lenis, RAF loops, Three.js renderers/textures, listeners via the `disposers` list). A module that leaks breaks back-navigation.
 
-- `film.ts` + `filmgl.ts`: the owner's bar for scrubbing is "as smooth as oryzo.ai". Every frame is fetched up front as a Blob and kept in memory; full bitmaps are decoded only in a sliding window round the playhead, with small permanent proxies of every 8th frame as the fallback. The playhead is one critically damped spring (`PLAYHEAD_T95`) that cross-blends neighbouring frames while moving and glides onto a whole frame at rest (a resting cross-blend is a visible double image). Lenis `lerp` is deliberately light (0.25) because the spring supplies the glide; stacking both was laggy. Dev builds expose `window.__film.stats` (frame times, not-ready ticks) for measuring. Captions and the theme blend are driven by the same damped progress. `filmgl.ts` draws through a Three.js quad with pointer fluid distortion, parallax, grain and vignette; 2D canvas is the fallback.
+- `film.ts` + `filmgl.ts`: the bar for scrubbing is "as smooth as oryzo.ai". Every frame is fetched up front as a Blob and kept in memory; full bitmaps are decoded only in a sliding window round the playhead, with small permanent proxies of every 8th frame as the fallback. The playhead is one critically damped spring (`PLAYHEAD_T95`) that cross-blends neighbouring frames while moving and glides onto a whole frame at rest (a resting cross-blend is a visible double image). Lenis `lerp` is deliberately light (0.25) because the spring supplies the glide. Dev builds expose `window.__film.stats`. Captions and the theme blend are driven by the same damped progress. `filmgl.ts` draws through a Three.js quad with pointer fluid distortion, parallax, grain and vignette; 2D canvas is the fallback.
 - `work.ts`: the "Selected work" stage, a curved, looping Three.js carousel with a synced DOM overlay (title, count, meta, progress bar). A real `<ul>` of project links stays in the DOM for keyboard, no-WebGL and reduced-motion use. See below.
 - `open.ts` / `next.ts`: the fill-viewport transition into a project page and the "Next project" footer.
 
@@ -70,13 +68,15 @@ State that depends on scroll (theme, carousel position) is derived from the curr
 
 `prefers-reduced-motion` disables Lenis and scrubbing and shows the last film frame as a static poster.
 
+The home preloader is switched on by an inline head script in `Layout.astro` (first load only, so no-JS visitors never get a stuck loading screen). It counts failed frames as done and gives up after `PRELOAD_TIMEOUT`.
+
 ### The carousel (`work.ts`)
 
-- **Position** is `scrollPos() + offset`. `scrollPos()` is the page scroll through the pinned stage (0 to N−1, re-read every frame); `offset` is moved by drag/swipe, arrow keys, clicking a side card and the resting snap. `work.ts` never scrolls the page: an earlier version snapped by calling `lenis.scrollTo`, which fought the user's scrolling.
+- **Position** is `scrollPos() + offset`. `scrollPos()` is the page scroll through the pinned stage (0 to N−1, re-read every frame); `offset` is moved by drag/swipe, arrow keys, clicking a side card and the resting snap. `work.ts` never scrolls the page.
 - **Looping** is done in the render, not the data: every per-card distance goes through `wrap()` (shortest signed distance round the loop), and indices through `mod()`. Positions are unbounded floats.
 - **Two indices on purpose.** Cards, the progress bar and click-to-open use `active`, from the eased position `cur`. The title, count and meta use `titleIdx`, from the un-eased `target`, so they head straight for the destination.
-- **Title swaps are coalesced** (`requestTitle` / `hideTitle` / `showTitle`, the `phase` state). A change hides the title once; the new one is built only after the destination has been stable for `SETTLE` ms. Rebuilding per project passed (SplitText is a DOM rebuild) was a visible stutter; do not go back to swapping on every index change.
-- **Layout is anchored to the title's font size** (`resize`). The card stops just above the title, because covers include light UI screenshots that made white title text unreadable when the card sat behind it. Long titles are therefore fitted with a `transform: scale` (`fitTitle`), not a font-size change. Portrait viewports get a wide 5:4 card so 16:10 covers are not cropped to a sliver.
+- **Title swaps are coalesced** (`requestTitle` / `hideTitle` / `showTitle`, the `phase` state). A change hides the title once; the new one is built only after the destination has been stable for `SETTLE` ms. Do not go back to swapping on every index change (visible stutter).
+- **Layout is anchored to the title's font size** (`resize`). The card stops just above the title, so light covers never sit behind white title text. Long titles are therefore fitted with a `transform: scale` (`fitTitle`), not a font-size change. Portrait viewports get a wide 5:4 card so 16:10 covers are not cropped to a sliver.
 - Textures are uploaded with `renderer.initTexture` when they load, so a card's first visible frame does not hitch.
 - It must keep working for any project count, including 1 and 2.
 
@@ -89,7 +89,7 @@ Each project has up to two 1600×1000 images:
 - `cover` → `<slug>-hero.webp`: what the carousel, the "Next project" strip and the OG image use. It is the app's own landing page where one exists, otherwise generated title art (abstract geometry in the site's token colours plus the project name, centred so it survives cropping).
 - `shot` → `<slug>.webp`: an in-app screenshot shown on the project page (`[slug].astro` uses `shot ?? cover`). The open transition cross-fades the cover into it, because both carry the same view-transition name.
 
-Which projects get title art instead of a landing-page capture is the owner's decision, not a judgement call: currently Clipfarm, NeuroVasc-X, DevHub, OS Simulators, Marine Debris and Veylith. Clipfarm deliberately has no `shot` (its real output shows other people's faces). The title art was rendered ad hoc with headless Chrome so it could use the site's web font; there is no generator script for it in the repo, and `npm run covers` produces only the older title-less placeholders.
+Which projects get title art instead of a landing-page capture is the owner's decision, not a judgement call: currently Clipfarm, NeuroVasc-X, DevHub, OS Simulators, Marine Debris and Veylith. Clipfarm deliberately has no `shot` (its real output shows other people's faces). Title art was rendered ad hoc in headless Chrome (no generator in the repo; `npm run covers` makes only title-less placeholders).
 
 There are thirteen projects, each written from its GitHub repo under `github.com/joshuakevin612`. Clipfarm lives in `twitch.md`; `os-simulators.md` covers three small repos in one entry and embeds two extra screenshots in its body. Project copy must only claim what the repo backs up (Veylith is described as an unfinished scaffold because it is one). Roles were stated by the owner; projects marked "Solo developer" are ones whose repo has a single contributor.
 
@@ -97,18 +97,19 @@ Project page titles are split by word then character in `main.ts` and shrunk unt
 
 ### Scroll length and the About page
 
-How far the visitor scrolls before the contact section is set by two CSS heights in `global.css`: `.hero` (400vh, the film) and `.work--gl` (one screen plus 30svh per further project, capped at `WORK_SCROLL_CAP` = 5 in `index.astro`; page scroll walks only that many projects, the rest are reached by drag, arrow keys and clicks). The owner asked for these to be shortened from 500vh and a full screen per project; do not lengthen them without asking.
+How far the visitor scrolls before the contact section is set by two CSS heights in `global.css`: `.hero` (400vh, the film) and `.work--gl` (one screen plus 30svh per further project, capped at `WORK_SCROLL_CAP` = 5 in `index.astro`; page scroll walks only that many projects, the rest are reached by drag, arrow keys and clicks). The owner had these shortened; do not lengthen them without asking.
 
-The home contact section's "Let's talk" links to `src/pages/about.astro` (bio, stack, email, phone, GitHub) rather than a `mailto:`. That page reuses the `.proj` article classes, so it gets the project-page title split and nav backing. The bio must only claim what the owner has stated.
+The home contact section's "Let's talk" links to `src/pages/about.astro` (bio, stack, email, phone, GitHub, LinkedIn) rather than a `mailto:`. That page reuses the `.proj` article classes, so it gets the project-page title split and nav backing. The bio must only claim what the owner has stated.
 
 ### Design tokens (`src/styles/global.css`)
 
 Light "desk" theme and dark "studio" theme as CSS variables on `<html>`. The only saturated colour anywhere is `--accent` vermilion `#FF4A1C` (also the keycap colour in the render); it is reserved for interactive/active states. No gradients or second accent. The fixed nav is transparent over the home film and gets a blurred backing bar only on project pages, where long text scrolls beneath it.
 
+## Deploy
+
+Deployed by `.github/workflows/deploy.yml` to GitHub Pages on every push to `main`, at `https://joshuakevin612.github.io/portfolio/`. The site therefore lives under `base: '/portfolio'`: never write a root-absolute path (`/film/...`, `/projects/...`, `/#work`); prefix with `import.meta.env.BASE_URL` as the existing links do. Internal project links end in `/` so Pages does not redirect mid-transition.
+
 ## Known gaps
 
-- Deployed by `.github/workflows/deploy.yml` to GitHub Pages on every push to `main`, at `https://joshuakevin612.github.io/portfolio/`. The site therefore lives under `base: '/portfolio'`: never write a root-absolute path (`/film/...`, `/projects/...`, `/#work`); prefix with `import.meta.env.BASE_URL` as the existing links do. Internal project links end in `/` so Pages does not redirect mid-transition.
-- Placeholder content: a missing `public/og.png`; no LinkedIn link (URL unknown).
 - Unverified on real hardware: touch swipe, mouse-wheel feel and carousel smoothness on a real GPU (checks so far were emulated viewports in headless Chrome), plus the reduced-motion and no-WebGL fallbacks and the small-viewport caption layout over the film.
-- The ~29 MB of film frames in `public/film` are committed content, not generated at build.
-- `README.md` has an encoding glitch in its title line (mojibake dash).
+- The ~29 MB of film frames in `public/film` are committed content, not generated at build. `public/og.png` is a crop of the film's last frame.

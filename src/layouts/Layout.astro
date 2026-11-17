@@ -9,10 +9,11 @@ const og = new URL(/^https?:/.test(image) || image.startsWith(base + '/') ? imag
 const isHome = Astro.url.pathname.replace(/\/$/, '') === base;
 ---
 <!doctype html>
-<html lang="en" data-theme={theme} data-pre={isHome ? '' : undefined}>
+<html lang="en" data-theme={theme}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {isHome && <script is:inline>if (!window.__jkBooted) { window.__jkBooted = 1; document.documentElement.setAttribute('data-pre', ''); }</script>}
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
@@ -30,6 +31,7 @@ const isHome = Astro.url.pathname.replace(/\/$/, '') === base;
     <ClientRouter />
   </head>
   <body>
+    <a class="skip mono" href="#main">Skip to content</a>
     <div class="progress" data-progress aria-hidden="true"></div>
     <div class="cursor" data-cursor aria-hidden="true"></div>
     <header class="nav">
@@ -42,7 +44,7 @@ const isHome = Astro.url.pathname.replace(/\/$/, '') === base;
         </ul>
       </nav>
     </header>
-    <main><slot /></main>
+    <main id="main" tabindex="-1"><slot /></main>
     <script>import '../scripts/main';</script>
   </body>
 </html>

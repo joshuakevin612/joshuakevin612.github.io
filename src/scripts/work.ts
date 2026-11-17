@@ -70,6 +70,7 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
   const blank = new THREE.DataTexture(new Uint8Array([22, 22, 23, 255]), 1, 1);
   blank.needsUpdate = true;
   const textures: THREE.Texture[] = [];
+  let disposed = false;
   const meshes = items.map((it, i) => {
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthTest: false, depthWrite: false,
@@ -80,6 +81,7 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
     scene.add(m);
     if (it.img) {
       new THREE.TextureLoader().load(it.img, (t) => {
+        if (disposed) { t.dispose(); return; }
         textures[i] = t; t.anisotropy = 4;
         renderer.initTexture(t); // upload now, so the first frame a card comes into view does not hitch
         mat.uniforms.uTex.value = t; mat.uniforms.uImg.value = t.image.width / t.image.height;
@@ -360,6 +362,7 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('resize', onResize);
     linkHandlers.forEach((h) => h());
+    disposed = true;
     textures.forEach((t) => t?.dispose());
     blank.dispose(); geo.dispose();
     meshes.forEach((m) => (m.material as THREE.Material).dispose());
