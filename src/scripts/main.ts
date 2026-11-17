@@ -41,7 +41,10 @@ async function init() {
 
   // Lenis <-> ScrollTrigger
   if (!reduced) {
-    lenis = new Lenis({ lerp: 0.085, wheelMultiplier: 0.95 });
+    // Light smoothing only (time constant ~67 ms, dt-corrected in Lenis 1.3): it turns wheel notches into a continuous
+    // scroll, while the film playhead (film.ts, PLAYHEAD_T95) supplies the long glide. Stacking a heavy Lenis lerp on top
+    // of the playhead spring would add ~0.6 s of lag and feel like mush.
+    lenis = new Lenis({ lerp: 0.25, wheelMultiplier: 0.95 });
     if (import.meta.env.DEV) (window as any).__lenis = lenis;
     lenis.on('scroll', ScrollTrigger.update);
     const tick = (t: number) => lenis?.raf(t * 1000);

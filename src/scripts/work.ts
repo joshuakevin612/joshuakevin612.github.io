@@ -56,7 +56,10 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
   } catch { return makeStatic(); }
   renderer.setClearColor(0x000000, 0);
   section.classList.add('work--gl');
-  section.style.setProperty('--n', String(Math.max(N, 2)));
+  // page scroll only walks the first `scrolled` projects; the rest are reached by drag/keys/clicks (offset)
+  const cap = Math.max(2, Number(section.dataset.scrollCap) || 5);
+  const scrolled = Math.min(N, cap);
+  section.style.setProperty('--n', String(Math.max(scrolled, 2)));
 
   // ---------- scene
   const scene = new THREE.Scene();
@@ -174,7 +177,7 @@ export function initWork({ lenis, reduced, add }: Opts): (() => void) | null {
 
   // start/end only; position is derived from the live scroll offset every frame (see tick)
   const st = ScrollTrigger.create({ trigger: section, start: 'top top', end: 'bottom bottom', invalidateOnRefresh: true });
-  const scrollPos = () => (N > 1 && st.end > st.start ? clamp((scrollY - st.start) / (st.end - st.start), 0, 1) * (N - 1) : 0);
+  const scrollPos = () => (N > 1 && st.end > st.start ? clamp((scrollY - st.start) / (st.end - st.start), 0, 1) * (scrolled - 1) : 0);
   const total = () => scrollPos() + offset;
   /** rest on whole position `whole` (any integer; it is taken round the loop) */
   const settleOn = (whole: number) => { offset += whole - total(); lastInput = performance.now(); };

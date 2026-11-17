@@ -10,84 +10,172 @@ const film = filmMeta as Meta;
 export const filmState = { progress: 0 };
 
 // ------------------------------------------------------------------ frame store
-type Store = {
-  key: string; w: number; h: number;
-  src: (FrameSource | null)[]; st: Uint8Array; // 0 idle, 1 inflight, 2 done, 3 failed
-  coarse: number[]; coarseOnly: boolean; inflight: number; cur: number; active: boolean; onProgress: (() => void) | null;
-};
-let store: Store | null = null;
+// Pipeline: network -> Blob (kept for the session) -> ImageBitmap (sliding window, closed on eviction) -> GPU texture (pool).
+// After the preload the network is never touched during playback. Coarse frames (every COARSE_STRIDE) also keep a small
+// decoded "proxy" bitmap permanently, so a fast jump always has something within half a stride to show.
+type Tier = { decAhead: number; decBehind: number; decConc: number; texPool: number; texAhead: number; texBehind: number; proxyW: number };
+const TIER_FULL: Tier = { decAhead: 24, decBehind: 12, decConc: 2, texPool: 24, texAhead: 14, texBehind: 6, proxyW: 640 };
+const TIER_LITE: Tier = { decAhead: 12, decBehind: 5, decConc: 1, texPool: 12, texAhead: 7, texBehind: 3, proxyW: 320 };
+const lowMem = () => matchMedia('(hover: none), (pointer: coarse)').matches || ((navigator as any).deviceMemory ?? 8) <= 4;
+
 const N = film.count;
 const pad = (n: number) => String(n).padStart(4, '0');
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const url = (key: string, i: number) => `${BASE}/film/${key}/f_${pad(i + 1)}.webp`;
 const dprCap = () => Math.min(devicePixelRatio || 1, 2);
 const pickKey = () => (film.mobile && innerWidth * dprCap() <= film.mobile.width ? 'mobile' : 'desktop');
-const MAX_INFLIGHT = 6;
+const FETCH_CONC = 6;
+const COARSE_STRIDE = 8;
+const isCoarse = (i: number) => i % COARSE_STRIDE === 0 || i === N - 1;
 
-function getStore(key: string): Store {
-  if (store && store.key === key) return store;
-  store?.src.forEach((s) => { if (s && 'close' in s) s.close(); });
+// ---- playhead dynamics
+/** Seconds for the drawn position to cover 95% of a step in the scroll target (critically damped spring). The one knob for "heaviness". */
+const PLAYHEAD_T95 = 0.4;
+const MAX_SPEED = 120;      // frames/s, hard ceiling on playhead speed
+const MIN_SPEED = 18;       // frames/s floor when the decoded window is empty ahead
+const RUNWAY_S = 0.2;       // playhead may not move faster than (decoded frames ahead) / RUNWAY_S
+const MAX_GAP = 5;          // widest hole between two GPU-ready frames that is still blended as "exact"
+const MAX_DT = 0.05;        // s, clamp after tab-switch / GC stalls
+const FADE_TAU = 0.045;     // s, proxy -> exact refinement cross-fade
+const START_AHEAD = 6, START_BEHIND = 2;
+const OMEGA = 4.7439 / PLAYHEAD_T95; // critically damped: 95% at omega*t = 4.7439
+
+type Store = {
+  key: string; w: number; h: number; tier: Tier; only: number;
+  blob: (Blob | null)[]; bs: Uint8Array;     // bs: 0 idle, 1 fetching, 2 have, 3 failed
+  bmp: (FrameSource | null)[]; ds: Uint8Array; // ds: 0 none, 1 decoding, 2 ready, 3 failed
+  proxy: (FrameSource | null)[]; ps: Uint8Array;
+  prio: number[]; cur: number; dir: number; inflight: number; decoding: number; idleBlobs: number; alive: number;
+  active: boolean; ac: AbortController; onProgress: (() => void) | null; onEvict: ((i: number) => void) | null;
+};
+
+const closeSrc = (x: FrameSource | null) => { if (x && 'close' in x) x.close(); };
+
+function createStore(key: string, tier: Tier, only: number): Store {
   const dim = key === 'mobile' && film.mobile ? film.mobile : film.desktop;
-  store = { key, w: dim.width, h: dim.height, src: new Array(N).fill(null), st: new Uint8Array(N), coarse: [], coarseOnly: false, inflight: 0, cur: 0, active: true, onProgress: null };
-  return store;
+  return {
+    key, w: dim.width, h: dim.height, tier, only,
+    blob: new Array(N).fill(null), bs: new Uint8Array(N), bmp: new Array(N).fill(null), ds: new Uint8Array(N),
+    proxy: new Array(N).fill(null), ps: new Uint8Array(N),
+    prio: [], cur: 0, dir: 1, inflight: 0, decoding: 0, idleBlobs: N, alive: 0,
+    active: true, ac: new AbortController(), onProgress: null, onEvict: null,
+  };
 }
 
-async function fetchFrame(key: string, i: number): Promise<FrameSource> {
+function destroyStore(s: Store) {
+  s.active = false; s.onProgress = null; s.onEvict = null;
+  s.ac.abort();
+  for (let i = 0; i < N; i++) { closeSrc(s.bmp[i]); closeSrc(s.proxy[i]); }
+  s.blob.fill(null); s.bmp.fill(null); s.proxy.fill(null); s.alive = 0;
+}
+
+async function decodeBlob(b: Blob, w: number, h: number, resize: boolean): Promise<FrameSource> {
   if (typeof createImageBitmap === 'function') {
-    const r = await fetch(url(key, i));
-    if (!r.ok) throw new Error('frame ' + i);
-    return createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    const base = { premultiplyAlpha: 'none', colorSpaceConversion: 'none' } as const;
+    return createImageBitmap(b, resize ? { ...base, resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' } : base);
   }
-  const im = new Image(); im.decoding = 'async'; im.src = url(key, i);
-  await im.decode();
+  const u = URL.createObjectURL(b);
+  const im = new Image(); im.decoding = 'async'; im.src = u;
+  try { await im.decode(); } finally { URL.revokeObjectURL(u); }
   return im;
 }
 
-function pick(s: Store): number {
-  for (const i of s.coarse) if (s.st[i] === 0) return i;
-  if (s.coarseOnly) return -1;
-  const c = Math.max(0, Math.min(N - 1, Math.round(s.cur)));
-  for (let d = 0; d < N; d++) {
-    if (c + d < N && s.st[c + d] === 0) return c + d;
-    if (c - d >= 0 && s.st[c - d] === 0) return c - d;
+// is frame i inside the decoded window (ahead = along the scroll direction)
+const inWindow = (s: Store, i: number, slack: number) => {
+  if (s.only >= 0) return true;
+  const a = (i - Math.round(s.cur)) * s.dir;
+  return a >= 0 ? a <= s.tier.decAhead + slack : -a <= s.tier.decBehind + slack;
+};
+
+function fetchPick(s: Store): number {
+  for (let k = 0; k < s.prio.length; k++) if (s.bs[s.prio[k]] === 0) return s.prio[k];
+  if (s.only >= 0 || s.idleBlobs <= 0) return -1;
+  const c = Math.round(s.cur);
+  let best = -1, bc = Infinity;
+  for (let i = 0; i < N; i++) {
+    if (s.bs[i] !== 0) continue;
+    const d = i - c, cost = d * s.dir >= 0 ? Math.abs(d) : Math.abs(d) * 3; // ahead of the playhead first
+    if (cost < bc) { bc = cost; best = i; }
+  }
+  return best;
+}
+
+function pumpFetch(s: Store) {
+  while (s.active && s.inflight < FETCH_CONC) {
+    const i = fetchPick(s);
+    if (i < 0) break;
+    s.bs[i] = 1; s.idleBlobs--; s.inflight++;
+    fetchOne(s, i);
+  }
+}
+
+async function fetchOne(s: Store, i: number) {
+  try {
+    const r = await fetch(url(s.key, i), { signal: s.ac.signal });
+    if (!r.ok) throw new Error('frame ' + i);
+    const b = await r.blob();
+    if (!s.active) return;
+    s.blob[i] = b; s.bs[i] = 2;
+    if (s.only < 0 && isCoarse(i)) decodeProxy(s, i, b);
+  } catch { if (s.active) s.bs[i] = 3; }
+  finally {
+    s.inflight--;
+    if (s.active) { s.onProgress?.(); pumpFetch(s); pumpDecode(s); }
+  }
+}
+
+function decodeProxy(s: Store, i: number, b: Blob) {
+  s.ps[i] = 1;
+  const pw = s.tier.proxyW, ph = Math.round(pw * s.h / s.w);
+  decodeBlob(b, pw, ph, true).then(
+    (src) => { if (!s.active) { closeSrc(src); return; } s.proxy[i] = src; s.ps[i] = 2; },
+    () => { s.ps[i] = 3; },
+  ).finally(() => { if (s.active) s.onProgress?.(); });
+}
+
+function decodePick(s: Store): number {
+  const ok = (i: number) => i >= 0 && i < N && s.bs[i] === 2 && s.ds[i] === 0;
+  if (s.only >= 0) return ok(s.only) ? s.only : -1;
+  const c = Math.round(s.cur), A = s.tier.decAhead, B = s.tier.decBehind;
+  for (let d = 0; d <= Math.max(A, B); d++) {
+    if (d <= A && ok(c + s.dir * d)) return c + s.dir * d;
+    if (d > 0 && d <= B && ok(c - s.dir * d)) return c - s.dir * d;
   }
   return -1;
 }
 
-function pump(s: Store) {
-  if (!s.active) return;
-  while (s.inflight < MAX_INFLIGHT) {
-    const i = pick(s);
+function pumpDecode(s: Store) {
+  while (s.active && s.decoding < s.tier.decConc) {
+    const i = decodePick(s);
     if (i < 0) break;
-    s.st[i] = 1; s.inflight++;
-    fetchFrame(s.key, i).then((src) => { s.src[i] = src; s.st[i] = 2; }, () => { s.st[i] = 3; }).finally(() => {
-      s.inflight--; s.onProgress?.(); pump(s);
-    });
+    s.ds[i] = 1; s.decoding++;
+    decodeBlob(s.blob[i]!, 0, 0, false).then(
+      (src) => {
+        if (!s.active || !inWindow(s, i, 2)) { closeSrc(src); s.ds[i] = 0; return; }
+        s.bmp[i] = src; s.ds[i] = 2; s.alive++;
+      },
+      () => { s.ds[i] = 3; },
+    ).finally(() => { s.decoding--; if (s.active) { s.onProgress?.(); pumpDecode(s); } });
   }
 }
 
-const loaded = (s: Store, i: number) => s.st[i] === 2;
-const below = (s: Store, i: number) => { for (let k = i; k >= 0; k--) if (loaded(s, k)) return k; return -1; };
-const above = (s: Store, i: number) => { for (let k = i; k < N; k++) if (loaded(s, k)) return k; return -1; };
-
-/** Neighbouring loaded frames around float position f, plus blend factor. Never returns "nothing" once any frame exists. */
-function neighbours(s: Store, f: number): { a: number; b: number; mix: number } | null {
-  const fl = Math.max(0, Math.min(N - 1, Math.floor(f)));
-  const ce = Math.min(N - 1, fl + 1);
-  let lo = below(s, fl), hi = above(s, ce);
-  if (lo < 0) lo = hi;
-  if (hi < 0) hi = lo;
-  if (lo < 0) return null;
-  const mix = hi > lo ? Math.max(0, Math.min(1, (f - lo) / (hi - lo))) : 0;
-  return { a: lo, b: hi, mix };
+function evict(s: Store) {
+  if (s.only >= 0) return;
+  for (let i = 0; i < N; i++) {
+    if (s.ds[i] !== 2 || inWindow(s, i, 4)) continue;
+    s.onEvict?.(i);
+    closeSrc(s.bmp[i]); s.bmp[i] = null; s.ds[i] = 0; s.alive--;
+  }
 }
+
+type Br = { a: number; b: number; mix: number; ok: boolean };
 
 // ------------------------------------------------------------------ theme blend
 // Mirrors the token sets in global.css (light = :root, dark = [data-theme=dark]).
 const hex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 const LIGHT = { '--bg': hex('#F2EEE6'), '--surface': hex('#E7E1D6'), '--text': hex('#14130F'), '--text-2': hex('#6F6A60'), '--line': hex('#D5CEC1') };
 const DARK = { '--bg': hex('#0B0B0C'), '--surface': hex('#161617'), '--text': hex('#ECE8DF'), '--text-2': hex('#8A867E'), '--line': hex('#2A2A2C') };
-const THEME_A = 0.44, THEME_B = 0.52;
+const THEME_A = 0.075, THEME_B = 0.115;
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const smooth = (x: number) => { x = clamp01(x); return x * x * (3 - 2 * x); };
 let lastThemeT = -1;
@@ -123,6 +211,19 @@ const bump = (p: number, a: number, b: number, fa: number, fb: number) => smooth
 
 interface Opts { lenis: Lenis | null; reduced: boolean; add: (fn: () => void) => void }
 
+// ------------------------------------------------------------------ dev instrumentation (stripped from production builds)
+const RING = 8192;
+const makeDev = () => ({
+  iv: new Float32Array(RING), n: 0, max: 0, over20: 0, notReady: 0, maxStep: 0,
+  reset() { this.n = 0; this.max = 0; this.over20 = 0; this.notReady = 0; this.maxStep = 0; },
+  p95() {
+    const k = Math.min(this.n, RING);
+    if (!k) return 0;
+    const a = Array.from(this.iv.subarray(0, k)).sort((x, y) => x - y);
+    return a[Math.min(k - 1, Math.floor(k * 0.95))];
+  },
+});
+
 export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) | null> {
   const root = document.querySelector<HTMLElement>('[data-film]');
   const canvas = root?.querySelector<HTMLCanvasElement>('[data-film-canvas]');
@@ -139,72 +240,85 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   const role = root.querySelector<HTMLElement>('[data-hero-role]');
   const beats = Array.from(root.querySelectorAll<HTMLElement>('[data-beat]'));
   const touch = matchMedia('(hover: none), (pointer: coarse)').matches;
+  const tier = lowMem() ? TIER_LITE : TIER_FULL;
 
   // ---- progress source (scroll) + initial position
   let target = reduced ? 1 : heroProgress(root);
-  let cur = target;
-  const vel = { v: 0 };
+  let pos = target * (N - 1);       // drawn playhead, in frames
+  let vel = 0;                      // frames/s
   let snap = true; // until the intro finishes, follow the scroll exactly (load at any offset / anchor jump)
   const st = reduced ? null : ScrollTrigger.create({
     trigger: root, start: 'top top', end: 'bottom bottom',
     onUpdate: (s) => { target = s.progress; },
-    onRefresh: (s) => { target = s.progress; if (snap) cur = target; },
+    onRefresh: (s) => { target = s.progress; if (snap) pos = target * (N - 1); },
   });
-  if (st) { target = st.progress; cur = target; cleanups.push(() => st.kill()); }
+  if (st) { target = st.progress; pos = target * (N - 1); cleanups.push(() => st.kill()); }
 
-  // ---- load: coarse set first (preloader), then stream the rest around the playhead
-  const s = getStore(pickKey());
-  s.active = true;
-  s.cur = cur * (N - 1);
-  s.coarseOnly = reduced;
-  const want = new Set<number>(reduced ? [N - 1] : [0, N - 1]);
-  if (!reduced) {
-    for (let i = 0; i < N; i += 10) want.add(i);
-    const c = Math.round(s.cur);
-    for (let d = -6; d <= 6; d++) if (c + d >= 0 && c + d < N) want.add(c + d);
+  // ---- load: blobs (start window + coarse set first), proxies, start window decode; the preloader waits for exactly that
+  const s = createStore(pickKey(), tier, reduced ? N - 1 : -1);
+  cleanups.push(() => destroyStore(s));
+  const abortEarly = () => { dead = true; destroyStore(s); s.onProgress?.(); };
+  document.addEventListener('astro:before-swap', abortEarly, { once: true });
+  cleanups.push(() => document.removeEventListener('astro:before-swap', abortEarly));
+
+  s.cur = pos;
+  const startC = Math.max(0, Math.min(N - 1, Math.round(pos)));
+  const startSet: number[] = [];
+  const coarse: number[] = [];
+  if (reduced) { startSet.push(N - 1); }
+  else {
+    for (let i = startC - START_BEHIND; i <= startC + START_AHEAD; i++) if (i >= 0 && i < N) startSet.push(i);
+    for (let i = 0; i < N; i++) if (isCoarse(i)) coarse.push(i);
+    coarse.sort((x, y) => Math.abs(x - s.cur) - Math.abs(y - s.cur));
+    startSet.sort((x, y) => Math.abs(x - s.cur) - Math.abs(y - s.cur));
   }
-  s.coarse = Array.from(want).sort((x, y) => Math.abs(x - s.cur) - Math.abs(y - s.cur));
+  s.prio = startSet.concat(coarse.filter((i) => !startSet.includes(i)));
   const counter = { v: 0 };
   await new Promise<void>((res) => {
     const check = () => {
-      const done = s.coarse.filter((i) => s.st[i] >= 2).length;
-      const p = done / s.coarse.length;
-      if (showPre && countEl) gsap.to(counter, { v: p * 100, duration: 0.6, ease: 'power2.out', overwrite: true, onUpdate: () => { countEl.textContent = String(Math.round(counter.v)); } });
-      if (done === s.coarse.length || dead) { s.onProgress = null; res(); }
+      let done = 0;
+      const total = startSet.length + coarse.length;
+      for (const i of startSet) if (s.ds[i] >= 2) done++;
+      for (const i of coarse) if (s.bs[i] >= 2 && s.ps[i] >= 2) done++;
+      if (showPre && countEl) gsap.to(counter, { v: (done / Math.max(1, total)) * 100, duration: 0.6, ease: 'power2.out', overwrite: true, onUpdate: () => { countEl.textContent = String(Math.round(counter.v)); } });
+      if (done === total || dead) { s.onProgress = null; res(); }
     };
     s.onProgress = check;
-    pump(s);
+    pumpFetch(s);
     check();
   });
-  if (dead) { s.active = false; return null; }
-  cleanups.push(() => { s.active = false; s.onProgress = null; });
+  if (dead) { cleanups.forEach((c) => c()); return null; }
 
   // ---- renderer (WebGL, with 2D fallback)
   const ratio = s.w / s.h;
-  const gl: FilmGL | null = reduced ? null : createFilmGL(canvas, { lite: touch, imgAspect: ratio });
+  const gl: FilmGL | null = reduced ? null : createFilmGL(canvas, { lite: touch, imgAspect: ratio, pool: tier.texPool });
   const c2d = gl ? null : canvas.getContext('2d', { alpha: false });
   let dirty = true;
-  let lastRes = '';
   const size = () => {
     const dpr = dprCap();
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (gl) gl.resize(w, h, dpr);
     else { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
-    lastRes = `${w}x${h}x${dpr}`;
     dirty = true;
   };
   size();
-  const draw2d = (n: { a: number; b: number; mix: number }) => {
-    if (!c2d) return;
+  if (gl) {
+    // under the preloader: proxies + the start window go to the GPU now so the first frames never upload mid-scroll
+    for (const i of coarse) if (s.ps[i] === 2) gl.warmProxy(i, s.proxy[i]!);
+    for (const i of startSet) if (s.ds[i] === 2) gl.warm(i, s.bmp[i]!, startC, 1, -1, -1);
+    s.onEvict = (i) => gl.drop(i);
+  }
+  const put2d = (src: FrameSource) => {
     const cw = canvas.width, ch = canvas.height;
+    const iw = (src as any).width as number, ih = (src as any).height as number;
+    const k = Math.max(cw / iw, ch / ih);
+    c2d!.drawImage(src, (cw - iw * k) / 2, (ch - ih * k) / 2, iw * k, ih * k);
+  };
+  const draw2d = (a: FrameSource, b: FrameSource, mix: number) => {
+    if (!c2d) return;
     c2d.imageSmoothingEnabled = true; c2d.imageSmoothingQuality = 'high';
-    const put = (src: FrameSource) => {
-      const iw = (src as any).width as number, ih = (src as any).height as number;
-      const k = Math.max(cw / iw, ch / ih);
-      c2d.drawImage(src, (cw - iw * k) / 2, (ch - ih * k) / 2, iw * k, ih * k);
-    };
-    c2d.globalAlpha = 1; put(s.src[n.a]!);
-    if (n.b !== n.a && n.mix > 0.002) { c2d.globalAlpha = n.mix; put(s.src[n.b]!); c2d.globalAlpha = 1; }
+    c2d.globalAlpha = 1; put2d(a);
+    if (b !== a && mix > 0.002) { c2d.globalAlpha = mix; put2d(b); c2d.globalAlpha = 1; }
   };
   const onResize = () => { size(); };
   window.addEventListener('resize', onResize);
@@ -218,8 +332,8 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
 
   if (reduced) {
     html.dataset.theme = 'dark';
-    const n = neighbours(s, N - 1);
-    if (n) draw2d({ a: n.a, b: n.a, mix: 0 });
+    const f = s.bmp[N - 1];
+    if (f) draw2d(f, f, 0);
     return () => { dead = true; cleanups.forEach((c) => c()); };
   }
 
@@ -249,23 +363,36 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   cleanups.push(() => { html.classList.remove('film-live'); clearTheme(html); });
   if (logo) cleanups.push(() => { logo.style.opacity = ''; logo.style.visibility = ''; logo.style.transform = ''; logo.style.transformOrigin = ''; });
 
-  // ---- UI driven by the same damped progress as the picture
+  // ---- UI driven by the same damped progress as the picture. DOM is written only when a (quantised) value changed.
+  const nb = beats.length;
+  const bV = new Int32Array(nb).fill(-1), bY = new Int32Array(nb).fill(1 << 30);
+  let lastLogoT = -1;
   const applyUI = (p: number) => {
     setThemeProgress(p, html);
-    beats.forEach((b, i) => {
-      const [a, e] = BEATS[i] ?? [0, 1];
-      const tin = i === 0 ? 1 : smooth((p - (a + 0.004)) / FADE);
-      const tout = i === BEATS.length - 1 ? 0 : smooth((p - (e - FADE - 0.004)) / FADE);
+    for (let i = 0; i < nb; i++) {
+      const b = beats[i];
+      const be = BEATS[i] ?? [0, 1];
+      const tin = i === 0 ? 1 : smooth((p - (be[0] + 0.004)) / FADE);
+      const tout = i === BEATS.length - 1 ? 0 : smooth((p - (be[1] - FADE - 0.004)) / FADE);
       const v = tin * (1 - tout);
       const y = (1 - tin) * 38 - tout * 38;
-      if (v < 0.003) { if (b.style.visibility !== 'hidden') { b.style.visibility = 'hidden'; b.style.opacity = '0'; } return; }
+      if (v < 0.003) {
+        if (bV[i] !== -2) { b.style.visibility = 'hidden'; b.style.opacity = '0'; bV[i] = -2; bY[i] = 1 << 30; }
+        continue;
+      }
+      const qv = Math.round(v * 1000), qy = Math.round(y * 10);
+      if (qv === bV[i] && qy === bY[i]) continue;
+      bV[i] = qv; bY[i] = qy;
       b.style.visibility = 'visible';
-      b.style.opacity = v.toFixed(3);
-      b.style.transform = `translate3d(0,${y.toFixed(2)}px,0)`;
+      b.style.opacity = (qv / 1000).toFixed(3);
+      b.style.transform = `translate3d(0,${(qy / 10).toFixed(1)}px,0)`;
       b.style.filter = v > 0.995 ? '' : `blur(${((1 - v) * 9).toFixed(2)}px)`;
-    });
+    }
     if (logo) {
       const t = smooth((p - 0.94) / 0.06);
+      const qt = Math.round(t * 1000);
+      if (qt === lastLogoT) return;
+      lastLogoT = qt;
       logo.style.transformOrigin = 'left center';
       logo.style.opacity = t.toFixed(3);
       logo.style.visibility = t < 0.003 ? 'hidden' : 'visible';
@@ -273,62 +400,168 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     }
   };
 
+  // ---- frame selection (no allocation: results are written into reused objects)
+  const ready = (i: number) => i >= 0 && i < N && s.ds[i] === 2 && (!gl || gl.has(i));
+  const pReady = (i: number) => s.ps[i] === 2 && (!gl || gl.hasProxy(i));
+  const br: Br = { a: -1, b: -1, mix: 0, ok: false };
+  const pb: Br = { a: 0, b: 0, mix: 0, ok: true };
+  /** Exact frames around f. Normally the two adjacent frames; if the upper/lower one is not on the GPU yet the nearest ready one within MAX_GAP is used. */
+  const bracket = (f: number, o: Br) => {
+    const fl = Math.floor(f), fr = f - fl;
+    let lo = -1, hi = -1;
+    for (let d = 0; d <= MAX_GAP; d++) if (ready(fl - d)) { lo = fl - d; break; }
+    if (fr < 0.002 && lo === fl) { o.a = fl; o.b = fl; o.mix = 0; o.ok = true; return; }
+    for (let d = 0; d <= MAX_GAP; d++) if (ready(fl + 1 + d)) { hi = fl + 1 + d; break; }
+    if (fr > 0.998 && hi === fl + 1) { o.a = hi; o.b = hi; o.mix = 0; o.ok = true; return; }
+    if (lo < 0 || hi < 0) { o.a = -1; o.b = -1; o.mix = 0; o.ok = false; return; }
+    o.a = lo; o.b = hi; o.mix = (f - lo) / (hi - lo); o.ok = true;
+  };
+  const proxyBracket = (f: number, o: Br) => {
+    let a = Math.floor(f / COARSE_STRIDE) * COARSE_STRIDE, b = Math.min(N - 1, a + COARSE_STRIDE);
+    while (a > 0 && !pReady(a)) a -= COARSE_STRIDE;
+    while (b < N - 1 && !pReady(b)) b = Math.min(N - 1, b + COARSE_STRIDE);
+    if (!pReady(b)) b = a;
+    if (!pReady(a)) a = b;
+    o.a = a; o.b = b; o.mix = b > a ? clamp01((f - a) / (b - a)) : 0; o.ok = true;
+  };
+  /** Decoded frames in a row ahead of the playhead (in the scroll direction): how long it can run before it outpaces the window. */
+  const runway = (c: number) => {
+    for (let d = 1; d <= tier.decAhead; d++) {
+      const i = c + s.dir * d;
+      if (i < 0 || i >= N) return tier.decAhead;
+      if (s.ds[i] !== 2) return d - 1;
+    }
+    return tier.decAhead;
+  };
+  const tryWarm = (i: number, c: number) => {
+    if (i < 0 || i >= N || s.ds[i] !== 2 || gl!.has(i)) return false;
+    gl!.warm(i, s.bmp[i]!, c, s.dir, br.a, br.b);
+    return true;
+  };
+  /** At most one GPU upload per tick: frames the current draw needs, then ahead (on a lattice matching the speed), then everything near. */
+  const warmOne = (c: number, perTick: number) => {
+    const f0 = Math.floor(pos);
+    if (tryWarm(f0, c) || tryWarm(f0 + 1, c)) return;
+    const stp = Math.max(1, Math.min(3, Math.round(perTick)));
+    if (stp > 1) for (let k = 1; k * stp <= tier.texAhead; k++) if (tryWarm(c + s.dir * k * stp, c)) return;
+    const m = Math.max(tier.texAhead, tier.texBehind);
+    for (let d = 1; d <= m; d++) {
+      if (d <= tier.texAhead && tryWarm(c + s.dir * d, c)) return;
+      if (d <= tier.texBehind && tryWarm(c - s.dir * d, c)) return;
+    }
+  };
+
+  // ---- dev instrumentation
+  const dev = import.meta.env.DEV ? makeDev() : null;
+  if (import.meta.env.DEV && dev) {
+    (window as any).__film = {
+      get pos() { return pos; }, get target() { return target * (N - 1); }, get speed() { return Math.abs(vel); }, get gl() { return !!gl; }, store: s,
+      stats: {
+        get maxFrameMs() { return dev.max; }, get p95FrameMs() { return dev.p95(); }, get ticksOver20ms() { return dev.over20; },
+        get ticksNotReady() { return dev.notReady; }, get maxStep() { return dev.maxStep; }, get ticks() { return dev.n; },
+        get bitmaps() { return s.alive; }, get textures() { return gl ? gl.texCount : 0; },
+        reset() { dev.reset(); },
+      },
+    };
+    cleanups.push(() => { delete (window as any).__film; });
+  }
+
   // ---- loop
   const io = new IntersectionObserver(([en]) => { visible = en.isIntersecting; if (visible) dirty = true; });
   io.observe(root);
   cleanups.push(() => io.disconnect());
   const t0 = performance.now();
-  let last = t0, lastGrain = -1, lastF = -1, lastUIp = -1, lastPar = 0;
+  let last = t0, dtS = 1 / 60, lastUIp = -1, lastPar = 0, lastRound = -1, lastDir = 0;
+  let lastF = -1, lastQ = -1, lastA = -2, lastB = -2, prevPos = pos;
+  let prevTgt = target * (N - 1), tSpeed = 0, resting = false, capS = MAX_SPEED, q = 1, wasOk = true;
+  const inp = { a: -1, b: -1, mix: 0, pa: 0, pb: 0, pmix: 0, q: 1, fluid: 0, liquid: 0, time: 0, par: [0, 0] as [number, number], dt: 0 };
   const tick = () => {
     const now = performance.now();
-    const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+    const raw = now - last;
     last = now;
+    const dt = Math.min(MAX_DT, Math.max(0.0005, raw / 1000));
+    dtS += (Math.min(dt, 0.05) - dtS) * 0.05;
+    if (import.meta.env.DEV && dev) {
+      dev.iv[dev.n % RING] = raw; dev.n++;
+      if (raw > dev.max) dev.max = raw;
+      if (raw > 20) dev.over20++;
+    }
+    const tgtF = target * (N - 1);
     if (!visible) {
       // offscreen: no drawing, but keep theme/logo correct for wherever we are
-      if (cur !== target) { cur = target; vel.v = 0; }
-      if (cur !== lastUIp) { lastUIp = cur; filmState.progress = cur; applyUI(cur); }
+      pos = tgtF; vel = 0; prevTgt = tgtF; prevPos = pos;
+      const p = pos / (N - 1);
+      if (p !== lastUIp) { lastUIp = p; filmState.progress = p; applyUI(p); }
       return;
     }
-    // critically damped follow (smooth-damp), frame-rate independent
-    if (snap) { cur = target; vel.v = 0; }
-    else {
-      const om = 2 / 0.17, x = om * dt, ex = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
-      const ch = cur - target, tmp = (vel.v + om * ch) * dt;
-      vel.v = (vel.v - om * tmp) * ex;
-      let out = target + (ch + tmp) * ex;
-      if ((target - cur > 0) === (out > target)) { out = target; vel.v = 0; }
-      if (Math.abs(out - target) < 1e-6 && Math.abs(vel.v) < 1e-5) { out = target; vel.v = 0; }
-      cur = out;
-    }
-    filmState.progress = cur;
-    if (cur !== lastUIp) { lastUIp = cur; applyUI(cur); }
 
-    const f = cur * (N - 1);
-    s.cur = f;
-    if (Math.abs(f - lastF) > 0.5) pump(s);
-    const n = neighbours(s, f);
-    if (!n) return; // nothing loaded (cannot happen after preload); canvas keeps its last picture, never blanked
+    // ---- playhead: one critically damped spring toward the scroll target (exact solution, so frame-rate independent)
+    if (snap) { pos = tgtF; vel = 0; prevTgt = tgtF; resting = false; }
+    else {
+      // scroll speed in frames/s (low-passed). At rest the spring's destination becomes the nearest WHOLE frame: the same
+      // glide continues onto it (no snap), and blending between neighbours only happens while the picture is moving.
+      const spd = Math.abs(tgtF - prevTgt) / dt;
+      prevTgt = tgtF;
+      tSpeed += (spd - tSpeed) * (1 - Math.exp(-dt * 20));
+      if (resting) { if (tSpeed > 4) resting = false; } else if (tSpeed < 1.5) resting = true;
+      const dest = resting ? Math.round(tgtF) : tgtF;
+      const dd = dest - pos;
+      if (dd > 0.5) s.dir = 1; else if (dd < -0.5) s.dir = -1;
+      // speed limit: never faster than MAX_SPEED, nor than the decoded window can feed
+      const allowed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, runway(Math.round(pos)) / RUNWAY_S));
+      capS += (allowed - capS) * (1 - Math.exp(-dt * (allowed < capS ? 12 : 4)));
+      const e = Math.exp(-OMEGA * dt);
+      const c = pos - dest, t = (vel + OMEGA * c) * dt;
+      let np = dest + (c + t) * e, nv = (vel - OMEGA * t) * e;
+      const mx = capS * dt;
+      if (np - pos > mx) np = pos + mx; else if (np - pos < -mx) np = pos - mx;
+      if (nv > capS) nv = capS; else if (nv < -capS) nv = -capS;
+      if ((dest - pos > 0) === (np > dest) && Math.abs(dest - pos) > 1e-9) { np = dest; nv = 0; } // crossed the destination
+      if (Math.abs(np - dest) < 1e-4 && Math.abs(nv) < 1e-2) { np = dest; nv = 0; }
+      pos = np; vel = nv;
+    }
+    if (pos < 0) { pos = 0; vel = 0; } else if (pos > N - 1) { pos = N - 1; vel = 0; }
+    const p = pos / (N - 1);
+    filmState.progress = p;
+    if (p !== lastUIp) { lastUIp = p; applyUI(p); }
+    if (import.meta.env.DEV && dev) { const d = Math.abs(pos - prevPos); if (d > dev.maxStep) dev.maxStep = d; }
+    prevPos = pos;
+
+    // ---- stream bookkeeping
+    s.cur = pos;
+    const fr = Math.round(pos);
+    if (fr !== lastRound || s.dir !== lastDir) { lastRound = fr; lastDir = s.dir; evict(s); pumpFetch(s); pumpDecode(s); }
+
+    // ---- what to draw
+    bracket(pos, br);
+    if (br.ok) { if (!wasOk) q = 0; q += (1 - q) * (1 - Math.exp(-dt / FADE_TAU)); if (q > 0.995) q = 1; }
+    else q = 0;
+    wasOk = br.ok;
+    if (import.meta.env.DEV && dev && !br.ok) dev.notReady++;
+    if (!br.ok || q < 1) proxyBracket(pos, pb);
 
     par.x += (parT.x - par.x) * (1 - Math.exp(-dt * 4)); par.y += (parT.y - par.y) * (1 - Math.exp(-dt * 4));
     const parMoved = Math.abs(par.x - parT.x) + Math.abs(par.y - parT.y) > 0.001 || lastPar !== par.x + par.y;
     lastPar = par.x + par.y;
-
-    const liq = bump(cur, 0.66, 0.84, 0.05, 0.05);
-    const gT = Math.floor(((now - t0) / 1000) * 24);
-    if (!(dirty || f !== lastF || parMoved || gl?.active || liq > 0.01 || gT !== lastGrain)) return;
-    dirty = false; lastF = f; lastGrain = gT;
-    if (gl) {
-      gl.render({
-        a: n.a, aSrc: s.src[n.a]!, b: n.b, bSrc: s.src[n.b]!, mix: n.mix,
-        fluid: (touch ? 0.3 : 0.4) + 0.6 * liq, liquid: touch ? liq * 0.6 : liq,
-        time: (now - t0) / 1000, par: [par.x, par.y], dt,
-      });
-    } else draw2d(n);
+    const liq = bump(p, 0.66, 0.84, 0.05, 0.05);
+    const needDraw = dirty || pos !== lastF || q !== lastQ || br.a !== lastA || br.b !== lastB || parMoved || !!gl?.active || liq > 0.01;
+    if (needDraw) {
+      dirty = false; lastF = pos; lastQ = q; lastA = br.a; lastB = br.b;
+      if (gl) {
+        inp.a = br.a; inp.b = br.b; inp.mix = br.mix;
+        inp.pa = pb.a; inp.pb = pb.b; inp.pmix = pb.mix; inp.q = q;
+        inp.fluid = (touch ? 0.3 : 0.4) + 0.6 * liq; inp.liquid = touch ? liq * 0.6 : liq;
+        inp.time = (now - t0) / 1000; inp.par[0] = par.x; inp.par[1] = par.y; inp.dt = dt;
+        gl.render(inp);
+      } else if (br.ok) draw2d(s.bmp[br.a]!, s.bmp[br.b]!, br.mix);
+      else { const a = s.proxy[pb.a], b = s.proxy[pb.b]; if (a && b) draw2d(a, b, pb.mix); }
+    }
+    // one GPU upload per tick, after drawing, ahead of need
+    if (gl) warmOne(fr, Math.abs(vel) * dtS);
   };
   gsap.ticker.add(tick);
   cleanups.push(() => gsap.ticker.remove(tick));
-  applyUI(cur);
-  if (import.meta.env.DEV) (window as any).__film = { get cur() { return cur; }, get target() { return target; }, get gl() { return !!gl; }, store: s };
+  applyUI(pos / (N - 1));
 
   // ---- preloader resolve
   const reveal = () => {

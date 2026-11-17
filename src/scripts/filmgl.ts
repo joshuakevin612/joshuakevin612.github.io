@@ -3,9 +3,10 @@ import * as THREE from 'three';
 export type FrameSource = ImageBitmap | HTMLImageElement;
 
 export interface GLFrameInput {
-  a: number; aSrc: FrameSource;       // lower neighbour (index + pixels)
-  b: number; bSrc: FrameSource;       // upper neighbour
+  a: number; b: number;               // exact pair (frame indices already on the GPU); a < 0 = none, draw the proxy pair only
   mix: number;                        // 0..1 blend from a to b
+  pa: number; pb: number; pmix: number; // proxy (coarse, low-res) pair, drawn under the exact pair while it is unavailable / fading in
+  q: number;                          // 0..1 weight of the exact pair over the proxy pair
   fluid: number;                      // 0..1 distortion strength
   liquid: number;                     // 0..1 ambient liquid wobble (liquid beat)
   time: number;                       // seconds
@@ -19,6 +20,17 @@ export interface FilmGL {
   /** true while the fluid trail still has energy and needs rendering */
   readonly active: boolean;
   render(f: GLFrameInput): void;
+  /** true if frame idx already has a GPU texture */
+  has(idx: number): boolean;
+  /** upload frame idx now. When the pool is full the entry farthest from `center` (counting behind `dir` as costlier) is recycled, never pinA/pinB. */
+  warm(idx: number, src: FrameSource, center: number, dir: number, pinA: number, pinB: number): void;
+  /** free the GPU texture of frame idx, if any (its bitmap is about to be closed) */
+  drop(idx: number): void;
+  hasProxy(idx: number): boolean;
+  /** permanent low-res texture for a coarse frame */
+  warmProxy(idx: number, src: FrameSource): void;
+  /** textures alive (pool + proxies) */
+  readonly texCount: number;
   dispose(): void;
 }
 
@@ -48,8 +60,8 @@ void main(){
 const MAIN_FRAG = (lite: boolean) => /* glsl */ `
 precision highp float;
 varying vec2 vUv;
-uniform sampler2D uA, uB, uTrail;
-uniform float uMix, uFluid, uLiquid, uTime, uGrainT, uAspect, uImgAspect;
+uniform sampler2D uA, uB, uC, uD, uTrail;
+uniform float uMix, uMixF, uQ, uFluid, uLiquid, uTime, uGrainT, uAspect, uImgAspect;
 uniform vec2 uPar;
 float hash(vec2 p){ vec3 q = fract(vec3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 vec3 film(vec2 c){
@@ -57,7 +69,10 @@ vec3 film(vec2 c){
   if (uAspect > uImgAspect) s.y = uImgAspect / uAspect; else s.x = uAspect / uImgAspect;
   vec2 t = (c) * s + .5;
   t.y = 1. - t.y;
-  return mix(texture2D(uA, t).rgb, texture2D(uB, t).rgb, uMix);
+  vec3 e = vec3(0.), p = vec3(0.);
+  if (uQ > .001) e = mix(texture2D(uA, t).rgb, texture2D(uB, t).rgb, uMix);
+  if (uQ < .999) p = mix(texture2D(uC, t).rgb, texture2D(uD, t).rgb, uMixF);
+  return mix(p, e, uQ);
 }
 void main(){
   vec2 c = vUv - .5;
@@ -74,11 +89,11 @@ void main(){
   col *= 1. - .22 * smoothstep(.35, 1.05, length(q) / (.5 * max(uAspect, 1.)) * .9);   // soft vignette
   float n = hash(gl_FragCoord.xy + uGrainT * vec2(37., 17.)) - .5;
   float l = dot(col, vec3(.299, .587, .114));
-  col += n * .05 * (1. - .55 * l);                                                     // fine animated grain
+  col += n * .006 * (1. - .55 * l);                                                     // fine animated grain
   gl_FragColor = vec4(col, 1.);
 }`;
 
-export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; imgAspect: number }): FilmGL | null {
+export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; imgAspect: number; pool: number }): FilmGL | null {
   // probe first so a failure never leaves the canvas locked to a broken context
   try {
     const probe = document.createElement('canvas');
@@ -115,7 +130,7 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
   const mainMat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: MAIN_FRAG(opts.lite), depthTest: false, depthWrite: false,
     uniforms: {
-      uA: { value: null }, uB: { value: null }, uTrail: { value: rts[0].texture },
+      uA: { value: null }, uB: { value: null }, uC: { value: null }, uD: { value: null }, uMixF: { value: 0 }, uQ: { value: 1 }, uTrail: { value: rts[0].texture },
       uMix: { value: 0 }, uFluid: { value: 0 }, uLiquid: { value: 0 }, uTime: { value: 0 }, uGrainT: { value: 0 },
       uAspect: { value: 1 }, uImgAspect: { value: opts.imgAspect }, uPar: { value: new THREE.Vector2() },
     },
@@ -123,33 +138,19 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
   const trailScene = new THREE.Scene(); const trailMesh = new THREE.Mesh(geo, trailMat); trailMesh.frustumCulled = false; trailScene.add(trailMesh);
   const mainScene = new THREE.Scene(); const mainMesh = new THREE.Mesh(geo, mainMat); mainMesh.frustumCulled = false; mainScene.add(mainMesh);
 
-  // small texture pool: neighbouring frames keep their GPU texture, so scrubbing never re-uploads what it just drew
-  const POOL = 5;
-  const pool = new Map<number, { tex: THREE.Texture; used: number }>();
-  let tick = 0;
-  const texFor = (idx: number, src: FrameSource, keep: number[]) => {
-    let e = pool.get(idx);
-    if (!e) {
-      let tex: THREE.Texture | null = null;
-      if (pool.size >= POOL) {
-        let oldest = Infinity, key = -1;
-        pool.forEach((v, k) => { if (!keep.includes(k) && v.used < oldest) { oldest = v.used; key = k; } });
-        if (key >= 0) { tex = pool.get(key)!.tex; pool.delete(key); }
-      }
-      if (!tex) {
-        tex = new THREE.Texture();
-        tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
-        tex.flipY = false; tex.premultiplyAlpha = false;
-        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-      }
-      tex.image = src as any;
-      tex.needsUpdate = true;
-      e = { tex, used: 0 };
-      pool.set(idx, e);
-    }
-    e.used = ++tick;
-    return e.tex;
+  // Texture pool. Entries are recycled (same THREE.Texture, new image) so GPU memory is allocated once per slot. Size is
+  // chosen by the caller through warm()'s eviction policy; film.ts keeps it within its window so nothing it needs is evicted.
+  const pool = new Map<number, THREE.Texture>();
+  const proxies = new Map<number, THREE.Texture>();
+  const mkTex = () => {
+    const tex = new THREE.Texture();
+    tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    tex.flipY = false; tex.premultiplyAlpha = false;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
   };
+  const poolMax = Math.max(4, opts.pool);
+  const upload = (tex: THREE.Texture, src: FrameSource) => { tex.image = src as any; tex.needsUpdate = true; renderer.initTexture(tex); };
 
   // trail state
   let aspect = 1;
@@ -183,6 +184,28 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
       lastX = x; lastY = y;
       energy = Math.max(energy, Math.min(1, Math.hypot(vx, vy) * 4));
     },
+    has: (idx) => pool.has(idx),
+    hasProxy: (idx) => proxies.has(idx),
+    get texCount() { return pool.size + proxies.size; },
+    warm(idx, src, center, dir, pinA, pinB) {
+      let tex = pool.get(idx);
+      if (tex) { return; }
+      if (pool.size >= poolMax) {
+        let worst = -Infinity, key = -1;
+        pool.forEach((_, k) => {
+          if (k === pinA || k === pinB) return;
+          const d = (k - center) * dir;
+          const cost = d >= 0 ? d : -d * 2.2;
+          if (cost > worst) { worst = cost; key = k; }
+        });
+        if (key >= 0) { tex = pool.get(key)!; pool.delete(key); }
+      }
+      if (!tex) tex = mkTex();
+      upload(tex, src);
+      pool.set(idx, tex);
+    },
+    drop(idx) { const t = pool.get(idx); if (t) { pool.delete(idx); t.dispose(); } },
+    warmProxy(idx, src) { if (proxies.has(idx)) return; const t = mkTex(); upload(t, src); proxies.set(idx, t); },
     get active() { return energy > 0.002 || !!pend; },
     render(f) {
       // 1) velocity trail
@@ -208,8 +231,10 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
       }
       // 2) composited film frame
       const m = mainMat.uniforms;
-      m.uA.value = texFor(f.a, f.aSrc, [f.a, f.b]);
-      m.uB.value = texFor(f.b, f.bSrc, [f.a, f.b]);
+      const pA = proxies.get(f.pa) ?? null, pB = proxies.get(f.pb) ?? null;
+      const ta = pool.get(f.a) ?? pA, tb = pool.get(f.b) ?? pB;
+      m.uA.value = ta; m.uB.value = tb; m.uC.value = pA ?? ta; m.uD.value = pB ?? tb;
+      m.uMixF.value = f.pmix; m.uQ.value = f.a < 0 ? 0 : f.q;
       m.uTrail.value = rts[ri].texture;
       m.uMix.value = f.mix; m.uFluid.value = f.fluid; m.uLiquid.value = f.liquid;
       m.uTime.value = f.time; m.uGrainT.value = Math.floor(f.time * 24) % 997;
@@ -217,7 +242,8 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
       renderer.render(mainScene, cam);
     },
     dispose() {
-      pool.forEach((e) => e.tex.dispose()); pool.clear();
+      pool.forEach((e) => e.dispose()); pool.clear();
+      proxies.forEach((e) => e.dispose()); proxies.clear();
       rts.forEach((r) => r.dispose());
       geo.dispose(); trailMat.dispose(); mainMat.dispose();
       renderer.dispose();

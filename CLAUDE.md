@@ -47,14 +47,14 @@ The beat timing is duplicated on both sides and must be changed together:
 
 | Beat | Frames (`build_scene.py` header/tunables) | Progress (`BEATS` in `film.ts`) |
 |---|---|---|
-| Workspace wide shot | 1–120 | 0–0.25 |
+| Workspace wide shot: camera static to frame 100 while morning turns to night (sunset 12–80), then starts moving | 1–120 | 0–0.25 |
 | Glide to keyboard | 121–200 | 0.25–0.42 |
 | JK key launches, world goes black | 201–250 | 0.42–0.52 (no caption) |
 | Hero spin | 251–330 | 0.52–0.69 |
 | Liquid ripple | 331–400 | 0.69–0.83 |
 | Push-in to JK | 401–480 | 0.83–1 |
 
-The page's light-to-dark theme change is tied to the same timeline: `film.ts` interpolates the theme CSS variables across progress 0.44–0.52 (`THEME_A`/`THEME_B`) and flips `data-theme` at the midpoint, matching the frames where the render fades to black. The render uses the Standard view transform so the studio background is exactly `#0B0B0C`, the page's dark background; keep that if lighting is changed.
+The page's light-to-dark theme change is tied to the same timeline: `film.ts` interpolates the theme CSS variables across progress 0.075–0.115 (`THEME_A`/`THEME_B`) and flips `data-theme` at the midpoint, matching the frames where the sun goes down in the render (the window is short on purpose: mid-blend text is grey and hard to read over dusk). The scene is a gaming rig by a window; its RGB is a full hue wheel travelling across the hardware (owner's choice, the one exception to the vermilion-only rule below; the JK keycap stays vermilion), driven per frame from one function so frames render independently. The render uses the Standard view transform so the studio background is exactly `#0B0B0C`, the page's dark background; keep that if lighting is changed.
 
 Typing animation in the film comes from one table (`KEY_EVENTS`), kept that way so a hand rig can be driven from it later. There is deliberately no hand yet.
 
@@ -62,7 +62,7 @@ Typing animation in the film comes from one table (`KEY_EVENTS`), kept that way 
 
 `main.ts` is the single entry and owns lifecycle. The site uses Astro's `ClientRouter`, so every module must initialise on `astro:page-load` and fully tear down on `astro:before-swap` (ScrollTriggers, Lenis, RAF loops, Three.js renderers/textures, listeners via the `disposers` list). A module that leaks breaks back-navigation.
 
-- `film.ts` + `filmgl.ts`: damped playhead (drawn frame eases toward the scroll target and cross-blends neighbouring frames), streaming frame loader around the playhead, captions and theme blend driven by the same damped progress. `filmgl.ts` draws through a Three.js quad with pointer fluid distortion, parallax, grain and vignette; 2D canvas is the fallback.
+- `film.ts` + `filmgl.ts`: the owner's bar for scrubbing is "as smooth as oryzo.ai". Every frame is fetched up front as a Blob and kept in memory; full bitmaps are decoded only in a sliding window round the playhead, with small permanent proxies of every 8th frame as the fallback. The playhead is one critically damped spring (`PLAYHEAD_T95`) that cross-blends neighbouring frames while moving and glides onto a whole frame at rest (a resting cross-blend is a visible double image). Lenis `lerp` is deliberately light (0.25) because the spring supplies the glide; stacking both was laggy. Dev builds expose `window.__film.stats` (frame times, not-ready ticks) for measuring. Captions and the theme blend are driven by the same damped progress. `filmgl.ts` draws through a Three.js quad with pointer fluid distortion, parallax, grain and vignette; 2D canvas is the fallback.
 - `work.ts`: the "Selected work" stage, a curved, looping Three.js carousel with a synced DOM overlay (title, count, meta, progress bar). A real `<ul>` of project links stays in the DOM for keyboard, no-WebGL and reduced-motion use. See below.
 - `open.ts` / `next.ts`: the fill-viewport transition into a project page and the "Next project" footer.
 
@@ -97,7 +97,7 @@ Project page titles are split by word then character in `main.ts` and shrunk unt
 
 ### Scroll length and the About page
 
-How far the visitor scrolls before the contact section is set by two CSS heights in `global.css`: `.hero` (400vh, the film) and `.work--gl` (one screen plus 30svh per further project). The owner asked for these to be shortened from 500vh and a full screen per project; do not lengthen them without asking.
+How far the visitor scrolls before the contact section is set by two CSS heights in `global.css`: `.hero` (400vh, the film) and `.work--gl` (one screen plus 30svh per further project, capped at `WORK_SCROLL_CAP` = 5 in `index.astro`; page scroll walks only that many projects, the rest are reached by drag, arrow keys and clicks). The owner asked for these to be shortened from 500vh and a full screen per project; do not lengthen them without asking.
 
 The home contact section's "Let's talk" links to `src/pages/about.astro` (bio, stack, email, phone, GitHub) rather than a `mailto:`. That page reuses the `.proj` article classes, so it gets the project-page title split and nav backing. The bio must only claim what the owner has stated.
 

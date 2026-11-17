@@ -10,6 +10,8 @@ const items = await Promise.all(projects.map(async (p) => ({
 })));
 const data = items.map(({ p, preview }) => ({ slug: p.id, title: p.data.title, year: p.data.year, role: p.data.role, stack: p.data.stack, img: preview }));
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+/** projects the page scroll walks through before moving on to contact; the rest are reached by drag, keys and clicks */
+const WORK_SCROLL_CAP = 5;
 const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreSQL', 'PyTorch', 'Docker', 'WebSockets', 'Three.js'];
 ---
 <Layout title="Joshua Kevin — Software developer" theme="light">
@@ -48,7 +50,7 @@ const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreS
     </div>
   </section>
 
-  <section class="work" id="work" data-work data-items={JSON.stringify(data)} aria-labelledby="work-h">
+  <section class="work" id="work" data-work data-scroll-cap={WORK_SCROLL_CAP} data-items={JSON.stringify(data)} aria-labelledby="work-h">
     <div class="work__pin" data-work-pin>
       <div class="work__head mono"><h2 id="work-h" class="mono" style="font-weight:400">Selected work</h2><span class="dim">({String(items.length).padStart(2, '0')})</span></div>
       <canvas class="work__canvas" data-work-canvas aria-hidden="true"></canvas>
