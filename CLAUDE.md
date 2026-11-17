@@ -39,7 +39,7 @@ Default output is `public/film/desktop/`. Render to a staging dir with `--out`, 
 
 - `blender/build_scene.py` builds the whole scene procedurally (no external assets) and renders `f_0001.webp … f_0480.webp`.
 - `scripts/frames.mjs` derives the mobile set and writes `src/data/film.json` (`count`, `desktop`/`mobile` sizes). Site code must read count and sizes from that file, never hard-code them.
-- `src/scripts/film.ts` maps scroll progress over the pinned hero to a frame position. The film completes at `FILM_END` (0.86) of the pin and holds on the last frame for the rest, so the damped playhead lands before the hero scrolls away (the owner reported scrolling past mid push-in). Progress values below are film progress, after that mapping.
+- `src/scripts/film.ts` maps scroll progress over the pinned hero to a frame position. The film completes at `FILM_END` (0.86) of the pin and holds on the last frame for the rest, so the damped playhead lands before the hero scrolls away (the owner reported scrolling past mid push-in). Progress values below are film progress, after that mapping. On top of that, an end gate (`holdAtEnd` and Lenis `virtualScroll`) swallows wheel/touch input at the end of the hero until the playhead reaches the last frame; the owner wants the film fully finished before the page moves on. A reload always starts at the top (`main.ts` and an inline head script override Astro's scroll restore).
 
 The beat timing is duplicated on both sides and must be changed together:
 

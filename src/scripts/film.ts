@@ -259,6 +259,32 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   });
   if (st) { target = toFilm(st.progress); pos = target * (N - 1); cleanups.push(() => st.kill()); }
 
+  // ---- end gate: scrolling may not carry the page out of the hero until the playhead has landed on the last frame.
+  // Wheel/touch input past the end is swallowed while the film is still playing; a wheel delta that already overshot
+  // is pulled back to the end. Only applies right after user input, so nav-link jumps are never held.
+  const finished = () => pos >= N - 1.01;
+  let lastInput = -1e9;
+  if (lenis && st) {
+    const prevVS = lenis.options.virtualScroll;
+    lenis.options.virtualScroll = (d) => {
+      lastInput = performance.now();
+      const y = lenis.animatedScroll;
+      if (d.deltaY > 0 && !finished() && y >= st.end - 2 && y <= st.end + 2) {
+        if (d.event.cancelable) d.event.preventDefault();
+        return false;
+      }
+      return typeof prevVS === 'function' ? prevVS(d) : true;
+    };
+    cleanups.push(() => { lenis.options.virtualScroll = prevVS; });
+  }
+  const holdAtEnd = () => {
+    if (!lenis || !st || finished() || performance.now() - lastInput > 600) return;
+    const y = lenis.animatedScroll, end = st.end;
+    if (y > end + innerHeight * 0.5) return; // already well past (a jump), leave it
+    if (y > end + 0.5) lenis.scrollTo(end, { immediate: true, force: true });
+    else if (lenis.targetScroll > end) lenis.scrollTo(end, { force: true });
+  };
+
   // ---- load: blobs (start window + coarse set first), proxies, start window decode; the preloader waits for exactly that
   const s = createStore(pickKey(), tier, reduced ? N - 1 : -1);
   cleanups.push(() => destroyStore(s));
@@ -533,6 +559,7 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     const p = pos / (N - 1);
     filmState.progress = p;
     if (p !== lastUIp) { lastUIp = p; applyUI(p); }
+    holdAtEnd();
     if (import.meta.env.DEV && dev) { const d = Math.abs(pos - prevPos); if (d > dev.maxStep) dev.maxStep = d; }
     prevPos = pos;
 

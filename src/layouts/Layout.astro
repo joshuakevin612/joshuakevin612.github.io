@@ -13,6 +13,7 @@ const isHome = Astro.url.pathname.replace(/\/$/, '') === base;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>if (!location.hash && performance.getEntriesByType('navigation')[0]?.type === 'reload') history.scrollRestoration = 'manual';</script>
     {isHome && <script is:inline>if (!window.__jkBooted) { window.__jkBooted = 1; document.documentElement.setAttribute('data-pre', ''); }</script>}
     <title>{title}</title>
     <meta name="description" content={description} />

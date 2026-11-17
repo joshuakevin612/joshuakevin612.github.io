@@ -21,6 +21,15 @@ const $ = <T extends Element = HTMLElement>(s: string) => document.querySelector
 const $$ = <T extends Element = HTMLElement>(s: string) => Array.from(document.querySelectorAll<T>(s));
 const on = (t: EventTarget, ev: string, fn: any, o?: any) => { t.addEventListener(ev, fn, o); disposers.push(() => t.removeEventListener(ev, fn, o)); };
 
+// A reload starts at the top (the film is meant to be watched from its first frame). Astro's router restores the old
+// offset from history.state before this module runs, so clear that too. Back/forward keeps its position.
+const navType = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type;
+if (navType === 'reload' && !location.hash) {
+  history.scrollRestoration = 'manual';
+  history.replaceState({ ...history.state, scrollX: 0, scrollY: 0 }, '');
+  window.scrollTo(0, 0);
+}
+
 async function init() {
   if (active) return;
   active = true;
