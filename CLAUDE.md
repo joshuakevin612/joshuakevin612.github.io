@@ -68,7 +68,9 @@ State that depends on scroll (theme, carousel position) is derived from the curr
 
 `prefers-reduced-motion` disables Lenis and scrubbing and shows the last film frame as a static poster.
 
-The home preloader is switched on by an inline head script in `Layout.astro` (first load only, so no-JS visitors never get a stuck loading screen). Its 0–100 counts every film frame (plus the coarse proxies and the start window decode), so the desk is shown only once the whole film is in memory; the owner wants it fully loaded first. It never shows 100 early, counts failed frames as done, and gives up only when loading stalls (`PRELOAD_STALL`) or hits `PRELOAD_CAP`.
+The home preloader is switched on by an inline head script in `Layout.astro` (first load only, so no-JS visitors never get a stuck loading screen). Its 0–100 counts every film frame (plus the coarse proxies and the start window decode), so the desk is shown only once the whole film is in memory; the owner wants it fully loaded first. It never shows 100 early, counts failed frames as done, and gives up only when loading stalls (`PRELOAD_STALL`) or hits `PRELOAD_CAP`. Its look and exit live in `preloader.ts`: always the dark palette, a 3D starfield canvas, an orbit ring whose vermilion arc is the real progress, then warp streaks and an iris that opens from the centre onto the first frame (held on screen at least `MIN_SHOWN` so a cached load still plays the intro).
+
+The night sky: `sky.ts` draws a fixed canvas (`.sky` in `Layout.astro`, `z-index: -1`) behind every dark section, only while `data-theme` is dark and the pinned film is not covering the screen. Inside the film, `filmgl.ts` adds procedural stars to pixels that match the studio background `#0B0B0C` from the launch on (`STARS_FROM` in `film.ts`), so the keycap is never touched; that is one more reason the render must keep that exact background. Stars are white with faint cool/warm tints and soft glows on the brightest (owner's request, alongside the hue-wheel rig as an exception to the no-gradient rule).
 
 ### The carousel (`work.ts`)
 

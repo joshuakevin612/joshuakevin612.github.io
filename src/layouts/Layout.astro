@@ -55,6 +55,7 @@ const isHome = Astro.url.pathname.replace(/\/$/, '') === base;
     <ClientRouter />
   </head>
   <body>
+    <canvas class="sky" data-sky aria-hidden="true"></canvas>
     <a class="skip mono" href="#main">Skip to content</a>
     <div class="progress" data-progress aria-hidden="true"></div>
     <div class="cursor" data-cursor aria-hidden="true"></div>

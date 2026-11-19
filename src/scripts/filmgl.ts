@@ -9,6 +9,8 @@ export interface GLFrameInput {
   q: number;                          // 0..1 weight of the exact pair over the proxy pair
   fluid: number;                      // 0..1 distortion strength
   liquid: number;                     // 0..1 ambient liquid wobble (liquid beat)
+  stars: number;                      // 0..1 starfield over the studio background (from the launch on)
+  starZ: number;                      // 0..1 travel through the starfield (slow rotation + push forward)
   time: number;                       // seconds
   par: [number, number];              // damped pointer -1..1
   dt: number;
@@ -61,9 +63,35 @@ const MAIN_FRAG = (lite: boolean) => /* glsl */ `
 precision highp float;
 varying vec2 vUv;
 uniform sampler2D uA, uB, uC, uD, uTrail;
-uniform float uMix, uMixF, uQ, uFluid, uLiquid, uTime, uGrainT, uAspect, uImgAspect;
+uniform float uMix, uMixF, uQ, uFluid, uLiquid, uTime, uGrainT, uAspect, uImgAspect, uStars, uStarZ;
 uniform vec2 uPar;
 float hash(vec2 p){ vec3 q = fract(vec3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+// one layer of point stars on a jittered grid (q is in screen-height units): sparse cells, varied size, gentle twinkle
+vec3 starLayer(vec2 p, float scale, float dens, float seed){
+  vec2 g = p * scale, id = floor(g), f = fract(g) - .5;
+  float h = hash(id + seed);
+  if (h > dens) return vec3(0.);
+  vec2 o = (vec2(hash(id + seed + 17.3), hash(id + seed + 41.9)) - .5) * .7;
+  float d = length(f - o) / scale;
+  float b = hash(id + seed + 7.7);
+  float r = mix(.6, 1.9, b * b * b) / 1080.;               // radius ~0.6-1.9 px on a 1080 tall canvas
+  float k = d * d / (r * r);
+  float core = exp(-k);
+  float halo = b > .9 ? .12 * exp(-k / 30.) : 0.;
+  float tw = .65 + .35 * sin(uTime * (.5 + 2.5 * h / dens) + b * 91.);
+  vec3 tint = b < .15 ? vec3(.82, .87, 1.) : b > .88 ? vec3(1., .92, .82) : vec3(1.);
+  return tint * (core * (.4 + .6 * b) + halo) * tw;
+}
+vec3 stars(vec2 q){
+  float z = uStarZ;
+  float cs = cos(z * .3), sn = sin(z * .3);
+  q = mat2(cs, -sn, sn, cs) * q;                           // the sky turns slowly while the key spins
+  vec3 s = vec3(0.);
+  s += starLayer(q / (1. + z * .15) + uPar * .003, 120., .035, 3.1) * .5;
+  s += starLayer(q / (1. + z * .35) + uPar * .007, 60., .05, 11.7) * .8;
+  s += starLayer(q / (1. + z * .7) + uPar * .014, 30., .06, 23.5);
+  return s;
+}
 vec3 film(vec2 c){
   vec2 s = vec2(1.);
   if (uAspect > uImgAspect) s.y = uImgAspect / uAspect; else s.x = uAspect / uImgAspect;
@@ -86,6 +114,11 @@ void main(){
     ? 'vec3 col = film(c - disp);'
     : `vec3 col = vec3(film(c - disp * 1.35).r, film(c - disp).g, film(c - disp * .65).b);`}
   vec2 q = (vUv - .5) * vec2(uAspect, 1.);
+  if (uStars > .001) {
+    // only where the frame is the studio background (#0B0B0C): the keycap and its shading are never touched
+    float m = 1. - smoothstep(.018, .06, distance(col, vec3(.0431, .0431, .0471)));
+    col += stars(q) * m * uStars;
+  }
   col *= 1. - .22 * smoothstep(.35, 1.05, length(q) / (.5 * max(uAspect, 1.)) * .9);   // soft vignette
   float n = hash(gl_FragCoord.xy + uGrainT * vec2(37., 17.)) - .5;
   float l = dot(col, vec3(.299, .587, .114));
@@ -131,7 +164,7 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
     vertexShader: VERT, fragmentShader: MAIN_FRAG(opts.lite), depthTest: false, depthWrite: false,
     uniforms: {
       uA: { value: null }, uB: { value: null }, uC: { value: null }, uD: { value: null }, uMixF: { value: 0 }, uQ: { value: 1 }, uTrail: { value: rts[0].texture },
-      uMix: { value: 0 }, uFluid: { value: 0 }, uLiquid: { value: 0 }, uTime: { value: 0 }, uGrainT: { value: 0 },
+      uMix: { value: 0 }, uFluid: { value: 0 }, uLiquid: { value: 0 }, uStars: { value: 0 }, uStarZ: { value: 0 }, uTime: { value: 0 }, uGrainT: { value: 0 },
       uAspect: { value: 1 }, uImgAspect: { value: opts.imgAspect }, uPar: { value: new THREE.Vector2() },
     },
   });
@@ -236,7 +269,7 @@ export function createFilmGL(canvas: HTMLCanvasElement, opts: { lite: boolean; i
       m.uA.value = ta; m.uB.value = tb; m.uC.value = pA ?? ta; m.uD.value = pB ?? tb;
       m.uMixF.value = f.pmix; m.uQ.value = f.a < 0 ? 0 : f.q;
       m.uTrail.value = rts[ri].texture;
-      m.uMix.value = f.mix; m.uFluid.value = f.fluid; m.uLiquid.value = f.liquid;
+      m.uMix.value = f.mix; m.uFluid.value = f.fluid; m.uLiquid.value = f.liquid; m.uStars.value = f.stars; m.uStarZ.value = f.starZ;
       m.uTime.value = f.time; m.uGrainT.value = Math.floor(f.time * 24) % 997;
       m.uPar.value.set(f.par[0], f.par[1]);
       renderer.render(mainScene, cam);

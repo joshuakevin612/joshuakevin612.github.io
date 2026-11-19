@@ -5,6 +5,7 @@ import Lenis from 'lenis';
 import { initFilm, setThemeProgress, heroProgress } from './film';
 import { initWork } from './work';
 import { initNext } from './next';
+import { initSky } from './sky';
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
 if (import.meta.env.DEV) (window as any).__ST = ScrollTrigger;
@@ -185,6 +186,9 @@ async function init() {
     gsap.ticker.add(tick);
     disposers.push(() => gsap.ticker.remove(tick));
   }
+
+  // night sky behind the dark sections
+  { const d = initSky(reduced); if (d) disposers.push(d); }
 
   // projects stage (three) + next-project footer
   { const d = initWork({ lenis, reduced, add }); if (d) disposers.push(d); }

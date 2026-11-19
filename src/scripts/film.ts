@@ -4,6 +4,7 @@ import { SplitText } from 'gsap/SplitText';
 import type Lenis from 'lenis';
 import filmMeta from '../data/film.json';
 import { createFilmGL, type FilmGL, type FrameSource } from './filmgl';
+import { startPreloader } from './preloader';
 
 type Meta = { count: number; desktop: { width: number; height: number }; mobile: { width: number; height: number } | null };
 const film = filmMeta as Meta;
@@ -205,6 +206,8 @@ export function heroProgress(root: HTMLElement) {
 /** The film finishes at FILM_END of the pinned scroll; the rest is a dwell on the last frame, so the damped playhead
  *  lands on the final shot before the pin releases (otherwise a fast scroll carries the hero away mid push-in). */
 const FILM_END = 0.86;
+/** first frame index where the world has gone black after the JK key launch (build_scene.py beat 201–250) */
+const STARS_FROM = Math.round((N - 1) * 0.43);
 /** The preloader waits for every frame. It gives up only if loading stalls (no frame arrives for PRELOAD_STALL ms) or
  *  after PRELOAD_CAP ms in total; the playback loop then streams the rest and falls back to proxies. */
 const PRELOAD_STALL = 10000, PRELOAD_CAP = 90000; // ms
@@ -240,8 +243,6 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   const cleanups: Array<() => void> = [];
   const pre = document.querySelector<HTMLElement>('[data-preloader]');
   const showPre = !!pre && html.hasAttribute('data-pre') && !reduced;
-  const countEl = document.querySelector<HTMLElement>('[data-pre-count]');
-  const mark = document.querySelector<HTMLElement>('[data-pre-mark]');
   const logo = document.querySelector<HTMLElement>('[data-logo]');
   const title = root.querySelector<HTMLElement>('[data-hero-title]');
   const role = root.querySelector<HTMLElement>('[data-hero-role]');
@@ -307,7 +308,8 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     startSet.sort((x, y) => Math.abs(x - s.cur) - Math.abs(y - s.cur));
   }
   s.prio = startSet.concat(coarse.filter((i) => !startSet.includes(i)));
-  const counter = { v: 0 };
+  const preUI = showPre && pre ? startPreloader(pre) : null;
+  if (preUI) cleanups.push(() => preUI.dispose());
   await new Promise<void>((res) => {
     const all = !reduced; // reduced motion loads only the poster frame
     let lastDone = -1;
@@ -317,10 +319,12 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
       // a frame whose fetch failed (bs 3) counts as done: one 404 must not hold the preloader forever
       for (const i of startSet) if (s.ds[i] >= 2 || s.bs[i] === 3) done++;
       for (const i of coarse) if (s.bs[i] === 3 || (s.bs[i] >= 2 && s.ps[i] >= 2)) done++;
-      if (all) for (let i = 0; i < N; i++) if (s.bs[i] >= 2) done++;
+      let frames = 0;
+      if (all) for (let i = 0; i < N; i++) if (s.bs[i] >= 2) frames++;
+      done += frames;
       if (done !== lastDone) { lastDone = done; clearTimeout(stall); stall = setTimeout(giveUp, PRELOAD_STALL); }
       // the shown count never claims 100 before everything is in
-      if (showPre && countEl) gsap.to(counter, { v: done === total ? 100 : Math.min(99, (done / Math.max(1, total)) * 100), duration: 0.6, ease: 'power2.out', overwrite: true, onUpdate: () => { countEl.textContent = String(Math.floor(counter.v)); } });
+      preUI?.progress(done / Math.max(1, total), frames, N);
       if (done === total || dead || timedOut) { s.onProgress = null; clearTimeout(stall); clearTimeout(cap); res(); }
     };
     let timedOut = false;
@@ -519,7 +523,7 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   let last = t0, dtS = 1 / 60, lastUIp = -1, lastPar = 0, lastRound = -1, lastDir = 0;
   let lastF = -1, lastQ = -1, lastA = -2, lastB = -2, prevPos = pos;
   let prevTgt = target * (N - 1), tSpeed = 0, resting = false, capS = MAX_SPEED, q = 1, wasOk = true;
-  const inp = { a: -1, b: -1, mix: 0, pa: 0, pb: 0, pmix: 0, q: 1, fluid: 0, liquid: 0, time: 0, par: [0, 0] as [number, number], dt: 0 };
+  const inp = { a: -1, b: -1, mix: 0, pa: 0, pb: 0, pmix: 0, q: 1, fluid: 0, liquid: 0, stars: 0, starZ: 0, time: 0, par: [0, 0] as [number, number], dt: 0 };
   const tick = () => {
     const now = performance.now();
     const raw = now - last;
@@ -590,13 +594,16 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     const parMoved = Math.abs(par.x - parT.x) + Math.abs(par.y - parT.y) > 0.001 || lastPar !== par.x + par.y;
     lastPar = par.x + par.y;
     const liq = bump(p, 0.66, 0.84, 0.05, 0.05);
-    const needDraw = dirty || pos !== lastF || q !== lastQ || br.a !== lastA || br.b !== lastB || parMoved || !!gl?.active || liq > 0.01;
+    // stars over the black studio from the launch on (frames 206+); they twinkle, so keep drawing there on desktop
+    const starAmt = smooth((pos - STARS_FROM) / 24);
+    const needDraw = (starAmt > 0 && !touch) || dirty || pos !== lastF || q !== lastQ || br.a !== lastA || br.b !== lastB || parMoved || !!gl?.active || liq > 0.01;
     if (needDraw) {
       dirty = false; lastF = pos; lastQ = q; lastA = br.a; lastB = br.b;
       if (gl) {
         inp.a = br.a; inp.b = br.b; inp.mix = br.mix;
         inp.pa = pb.a; inp.pb = pb.b; inp.pmix = pb.mix; inp.q = q;
         inp.fluid = (touch ? 0.3 : 0.4) + 0.6 * liq; inp.liquid = touch ? liq * 0.6 : liq;
+        inp.stars = starAmt; inp.starZ = clamp01((pos - STARS_FROM) / (N - 1 - STARS_FROM));
         inp.time = (now - t0) / 1000; inp.par[0] = par.x; inp.par[1] = par.y; inp.dt = dt;
         gl.render(inp);
       } else if (br.ok) draw2d(s.bmp[br.a]!, s.bmp[br.b]!, br.mix);
@@ -619,20 +626,14 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     if (titleSplit) tl.to(titleSplit.chars, { yPercent: 0, opacity: 1, duration: 1.1, ease: 'power4.out', stagger: 0.035 }, 0);
     if (role) tl.to(role, { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0.5);
   };
-  if (showPre && pre && countEl && mark) {
+  if (preUI && pre) {
     pre.style.display = 'grid';
     await new Promise<void>((res) => gsap.delayedCall(0.2, res));
     if (dead) return null;
-    await new Promise<void>((res) => {
-      gsap.timeline({ onComplete: res })
-        .to(counter, { v: 100, duration: 0.4, onUpdate: () => { countEl.textContent = String(Math.round(counter.v)); } })
-        .to(countEl, { yPercent: -120, opacity: 0, duration: 0.5, ease: 'power3.in' }, '+=0.15')
-        .fromTo(mark, { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.7, ease: 'power4.out' }, '<0.2')
-        .to(mark, { scale: 0.9, opacity: 0, duration: 0.45, ease: 'power3.in' }, '+=0.45')
-        .to(pre, { yPercent: -100, duration: 0.9, ease: 'power4.inOut' }, '-=0.1');
-    });
+    await preUI.finish();
+    if (dead) { cleanups.forEach((c) => c()); return null; }
     pre.style.display = '';
-    gsap.set(pre, { clearProps: 'all' });
+    preUI.dispose();
   }
   reveal();
   ScrollTrigger.refresh();

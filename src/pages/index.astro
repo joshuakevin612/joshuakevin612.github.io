@@ -2,6 +2,7 @@
 import { getCollection } from 'astro:content';
 import { getImage, Image } from 'astro:assets';
 import Layout from '../layouts/Layout.astro';
+import filmMeta from '../data/film.json';
 
 const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
 const items = await Promise.all(projects.map(async (p) => ({
@@ -22,9 +23,20 @@ const kinds = ['Full-stack web apps', 'Machine learning', 'Simulators', 'Hackath
 ---
 <Layout title="Joshua Kevin — Software developer" description="Selected projects by Joshua Kevin, a software developer: full-stack web apps, machine learning systems, OS simulators and hackathon prototypes, with live demos and source code." theme="light" jsonLd={jsonLd}>
   <div class="preloader" data-preloader aria-hidden="true">
-    <span class="pre__label mono">Loading</span>
-    <div class="pre__count" data-pre-count>0</div>
-    <div class="pre__mark" data-pre-mark>J<span>K</span></div>
+    <canvas class="pre__sky" data-pre-sky></canvas>
+    <span class="pre__label mono" data-pre-fade>Joshua Kevin</span>
+    <span class="pre__label pre__label--r mono" data-pre-fade>Loading<i class="pre__dots"><b>.</b><b>.</b><b>.</b></i></span>
+    <div class="pre__core" data-pre-core>
+      <svg class="pre__ring" viewBox="0 0 200 200">
+        <circle class="pre__ticks" cx="100" cy="100" r="99" />
+        <circle class="pre__track" cx="100" cy="100" r="92" />
+        <circle class="pre__arc" data-pre-arc cx="100" cy="100" r="92" pathLength="1" />
+      </svg>
+      <div class="pre__sat" data-pre-sat><i></i></div>
+      <div class="pre__mark" data-pre-mark><span class="pre__j">J</span><span class="pre__k">K</span></div>
+    </div>
+    <div class="pre__count" data-pre-fade><span data-pre-count>0</span><sup>%</sup></div>
+    <div class="pre__frames mono" data-pre-fade><span class="dim">Film frames</span> <span data-pre-frames>{`${"0".padStart(String(filmMeta.count).length, "0")} / ${filmMeta.count}`}</span></div>
   </div>
 
   <section class="hero" data-film aria-label="Introduction">
