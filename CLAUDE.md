@@ -68,7 +68,7 @@ State that depends on scroll (theme, carousel position) is derived from the curr
 
 `prefers-reduced-motion` disables Lenis and scrubbing and shows the last film frame as a static poster.
 
-The home preloader is switched on by an inline head script in `Layout.astro` (first load only, so no-JS visitors never get a stuck loading screen). It counts failed frames as done and gives up after `PRELOAD_TIMEOUT`.
+The home preloader is switched on by an inline head script in `Layout.astro` (first load only, so no-JS visitors never get a stuck loading screen). Its 0–100 counts every film frame (plus the coarse proxies and the start window decode), so the desk is shown only once the whole film is in memory; the owner wants it fully loaded first. It never shows 100 early, counts failed frames as done, and gives up only when loading stalls (`PRELOAD_STALL`) or hits `PRELOAD_CAP`.
 
 ### The carousel (`work.ts`)
 

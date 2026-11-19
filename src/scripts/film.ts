@@ -205,7 +205,9 @@ export function heroProgress(root: HTMLElement) {
 /** The film finishes at FILM_END of the pinned scroll; the rest is a dwell on the last frame, so the damped playhead
  *  lands on the final shot before the pin releases (otherwise a fast scroll carries the hero away mid push-in). */
 const FILM_END = 0.86;
-const PRELOAD_TIMEOUT = 12000; // ms
+/** The preloader waits for every frame. It gives up only if loading stalls (no frame arrives for PRELOAD_STALL ms) or
+ *  after PRELOAD_CAP ms in total; the playback loop then streams the rest and falls back to proxies. */
+const PRELOAD_STALL = 10000, PRELOAD_CAP = 90000; // ms
 const toFilm = (scroll: number) => clamp01(scroll / FILM_END);
 
 // ------------------------------------------------------------------ captions
@@ -285,7 +287,8 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
     else if (lenis.targetScroll > end) lenis.scrollTo(end, { force: true });
   };
 
-  // ---- load: blobs (start window + coarse set first), proxies, start window decode; the preloader waits for exactly that
+  // ---- load: every frame's blob (start window + coarse set first), coarse proxies and the start window decode.
+  // The preloader counts all of it, so 100 means the whole film is in memory before the desk is shown.
   const s = createStore(pickKey(), tier, reduced ? N - 1 : -1);
   cleanups.push(() => destroyStore(s));
   const abortEarly = () => { dead = true; destroyStore(s); s.onProgress?.(); };
@@ -306,18 +309,25 @@ export async function initFilm({ lenis, reduced }: Opts): Promise<(() => void) |
   s.prio = startSet.concat(coarse.filter((i) => !startSet.includes(i)));
   const counter = { v: 0 };
   await new Promise<void>((res) => {
+    const all = !reduced; // reduced motion loads only the poster frame
+    let lastDone = -1;
     const check = () => {
       let done = 0;
-      const total = startSet.length + coarse.length;
+      const total = startSet.length + coarse.length + (all ? N : 0);
       // a frame whose fetch failed (bs 3) counts as done: one 404 must not hold the preloader forever
       for (const i of startSet) if (s.ds[i] >= 2 || s.bs[i] === 3) done++;
       for (const i of coarse) if (s.bs[i] === 3 || (s.bs[i] >= 2 && s.ps[i] >= 2)) done++;
-      if (showPre && countEl) gsap.to(counter, { v: (done / Math.max(1, total)) * 100, duration: 0.6, ease: 'power2.out', overwrite: true, onUpdate: () => { countEl.textContent = String(Math.round(counter.v)); } });
-      if (done === total || dead || timedOut) { s.onProgress = null; clearTimeout(timer); res(); }
+      if (all) for (let i = 0; i < N; i++) if (s.bs[i] >= 2) done++;
+      if (done !== lastDone) { lastDone = done; clearTimeout(stall); stall = setTimeout(giveUp, PRELOAD_STALL); }
+      // the shown count never claims 100 before everything is in
+      if (showPre && countEl) gsap.to(counter, { v: done === total ? 100 : Math.min(99, (done / Math.max(1, total)) * 100), duration: 0.6, ease: 'power2.out', overwrite: true, onUpdate: () => { countEl.textContent = String(Math.floor(counter.v)); } });
+      if (done === total || dead || timedOut) { s.onProgress = null; clearTimeout(stall); clearTimeout(cap); res(); }
     };
     let timedOut = false;
-    // slow or broken network: stop waiting and let the playback loop stream the rest (it falls back to proxies)
-    const timer = setTimeout(() => { timedOut = true; check(); }, PRELOAD_TIMEOUT);
+    // stalled or very slow network: stop waiting and let the playback loop stream the rest (it falls back to proxies)
+    const giveUp = () => { timedOut = true; check(); };
+    let stall = setTimeout(giveUp, PRELOAD_STALL);
+    const cap = setTimeout(giveUp, PRELOAD_CAP);
     s.onProgress = check;
     pumpFetch(s);
     check();
