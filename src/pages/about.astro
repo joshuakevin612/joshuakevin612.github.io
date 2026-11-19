@@ -2,8 +2,21 @@
 import Layout from '../layouts/Layout.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreSQL', 'PyTorch', 'Docker', 'WebSockets', 'Three.js'];
+const site = Astro.site!;
+const url = new URL('/about/', site).href;
+const jsonLd = {
+  '@context': 'https://schema.org', '@type': 'ProfilePage', url, name: 'About — Joshua Kevin',
+  mainEntity: {
+    '@type': 'Person', '@id': url + '#person', name: 'Joshua Kevin', url, jobTitle: 'Software developer',
+    affiliation: { '@type': 'CollegeOrUniversity', name: 'SRM Chennai' },
+    address: { '@type': 'PostalAddress', addressLocality: 'Chennai', addressCountry: 'IN' },
+    email: 'mailto:joshuakevin612@gmail.com',
+    sameAs: ['https://github.com/joshuakevin612', 'https://www.linkedin.com/in/joshua-kevin-s-126472380/'],
+    knowsAbout: skills,
+  },
+};
 ---
-<Layout title="About — Joshua Kevin" description="About Joshua Kevin, a computer science student at SRM Chennai, and how to get in touch." theme="dark">
+<Layout title="About — Joshua Kevin" description="About Joshua Kevin, a computer science student at SRM Chennai, and how to get in touch." theme="dark" jsonLd={jsonLd}>
   <article class="proj about">
     <p class="mono dim" data-reveal><a class="link" href={`${base}/`}>← Home</a></p>
     <h1 class="proj__title" data-proj-title>About me</h1>
@@ -21,9 +34,8 @@ const skills = ['Python', 'FastAPI', 'TypeScript', 'React', 'Next.js', 'PostgreS
     <h2 class="about__h mono dim" id="contact" data-reveal>Get in touch</h2>
     <dl class="details mono">
       <div data-reveal><dt>Email</dt><dd><a class="link" href="mailto:joshuakevin612@gmail.com">joshuakevin612@gmail.com</a></dd></div>
-      <div data-reveal><dt>Phone</dt><dd><a class="link" href="tel:+919360449747">+91 93604 49747</a></dd></div>
-      <div data-reveal><dt>GitHub</dt><dd><a class="link" href="https://github.com/joshuakevin612" rel="noopener">joshuakevin612 ↗</a></dd></div>
-      <div data-reveal><dt>LinkedIn</dt><dd><a class="link" href="https://www.linkedin.com/in/joshua-kevin-s-126472380/" rel="noopener">joshua-kevin-s ↗</a></dd></div>
+      <div data-reveal><dt>GitHub</dt><dd><a class="link" href="https://github.com/joshuakevin612" rel="me noopener noreferrer">joshuakevin612 ↗</a></dd></div>
+      <div data-reveal><dt>LinkedIn</dt><dd><a class="link" href="https://www.linkedin.com/in/joshua-kevin-s-126472380/" rel="me noopener noreferrer">joshua-kevin-s ↗</a></dd></div>
     </dl>
   </article>
   <footer class="foot mono dim"><span>© Joshua Kevin</span><a class="link" href={`${base}/#work`}>Selected work</a></footer>

@@ -2,12 +2,12 @@
 
 ## What this is
 
-Joshua Kevin's developer portfolio: a static Astro 5 site whose hero is a scroll-scrubbed 3D film (pre-rendered in Blender, played back as a WebP frame sequence through WebGL), followed by an interactive WebGL project carousel. Motion is the product; treat smoothness and visual polish as requirements, not extras.
+Joshua Kevin's developer portfolio: a static Astro 7 site whose hero is a scroll-scrubbed 3D film (pre-rendered in Blender, played back as a WebP frame sequence through WebGL), followed by an interactive WebGL project carousel. Motion is the product; treat smoothness and visual polish as requirements, not extras.
 
 ## Commands
 
 ```bash
-npm run dev          # Astro dev server, http://localhost:4321/portfolio/ (also .claude/launch.json "dev")
+npm run dev          # Astro dev server, http://localhost:4321/ (also .claude/launch.json "dev")
 npm run build        # static build to dist/; content schema and .astro errors surface here
 npx tsc --noEmit     # type-checks src/scripts (the build does not)
 npm run preview      # serve dist/
@@ -99,15 +99,24 @@ Project page titles are split by word then character in `main.ts` and shrunk unt
 
 How far the visitor scrolls before the contact section is set by two CSS heights in `global.css`: `.hero` (400vh, the film) and `.work--gl` (one screen plus 30svh per further project, capped at `WORK_SCROLL_CAP` = 5 in `index.astro`; page scroll walks only that many projects, the rest are reached by drag, arrow keys and clicks). The owner had these shortened; do not lengthen them without asking.
 
-The home contact section's "Let's talk" links to `src/pages/about.astro` (bio, stack, email, phone, GitHub, LinkedIn) rather than a `mailto:`. That page reuses the `.proj` article classes, so it gets the project-page title split and nav backing. The bio must only claim what the owner has stated.
+The home contact section's "Let's talk" links to `src/pages/about.astro` (bio, stack, email, GitHub, LinkedIn) rather than a `mailto:`. That page reuses the `.proj` article classes, so it gets the project-page title split and nav backing. The bio must only claim what the owner has stated. The phone number was removed from public pages at the owner's request; do not re-add it.
 
 ### Design tokens (`src/styles/global.css`)
 
 Light "desk" theme and dark "studio" theme as CSS variables on `<html>`. The only saturated colour anywhere is `--accent` vermilion `#FF4A1C` (also the keycap colour in the render); it is reserved for interactive/active states. No gradients or second accent. The fixed nav is transparent over the home film and gets a blurred backing bar only on project pages, where long text scrolls beneath it.
 
+## SEO and security
+
+- Sitemap from `@astrojs/sitemap`; `public/robots.txt` points at it.
+- JSON-LD: home has `WebSite` and an `ItemList` of projects. `Person`/`ProfilePage` is on About only; the owner does not want a personal "about me" on the home page. Project pages get `SoftwareSourceCode`/`CreativeWork` and `BreadcrumbList`.
+- Fonts are self-hosted via `@fontsource`; do not add Google Fonts or other third-party font CDNs.
+- Content-Security-Policy is a `<meta>` in `Layout.astro` (production builds only; Pages cannot send headers, so no `frame-ancestors`). Inline scripts live in the `SCROLL_JS`/`BOOT_JS` constants and are hashed at build; any new inline `<script>` must go through the same list or the CSP blocks it.
+- Optional `PUBLIC_GSC_VERIFICATION` env var fills the Search Console meta tag. Unset means no tag.
+- Actions are pinned to full commit SHAs (version in a trailing comment). Dependabot (`.github/dependabot.yml`) proposes weekly npm and action updates.
+
 ## Deploy
 
-Deployed by `.github/workflows/deploy.yml` to GitHub Pages on every push to `main`, at `https://joshuakevin612.github.io/portfolio/`. The site therefore lives under `base: '/portfolio'`: never write a root-absolute path (`/film/...`, `/projects/...`, `/#work`); prefix with `import.meta.env.BASE_URL` as the existing links do. Internal project links end in `/` so Pages does not redirect mid-transition.
+Deployed by `.github/workflows/deploy.yml` to GitHub Pages on every push to `main`, at `https://joshuakevin612.github.io/`, from the user-site repo `joshuakevin612.github.io`. The site has no base path: never write a root-absolute path (`/film/...`, `/projects/...`, `/#work`) and prefix with `import.meta.env.BASE_URL` as the existing links do, so a future base change stays one line. Internal project links end in `/` (enforced by `trailingSlash: 'always'`) so Pages does not redirect mid-transition. CI runs `npm audit --omit=dev --audit-level=high` after `npm ci`, so a high or critical advisory in a runtime dependency fails the deploy.
 
 ## Known gaps
 

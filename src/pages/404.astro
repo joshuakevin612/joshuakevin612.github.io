@@ -1,0 +1,15 @@
+---
+import Layout from '../layouts/Layout.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Layout title="Page not found — Joshua Kevin" description="This page does not exist." theme="dark" noindex>
+  <article class="proj about">
+    <p class="mono dim" data-reveal><a class="link" href={`${base}/`}>← Home</a></p>
+    <h1 class="proj__title" data-proj-title>Not found</h1>
+    <p class="proj__summary" data-reveal>That page doesn't exist, or it has moved.</p>
+    <dl class="details mono">
+      <div data-reveal><dt>Try</dt><dd><a class="link" href={`${base}/`}>Home</a> · <a class="link" href={`${base}/#work`}>Selected work</a></dd></div>
+    </dl>
+  </article>
+  <footer class="foot mono dim"><span>© Joshua Kevin</span><a class="link" href={`${base}/#work`}>Selected work</a></footer>
+</Layout>

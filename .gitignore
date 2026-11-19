@@ -4,3 +4,8 @@ dist
 
 # Blender staging renders (look checks)
 .staging/
+
+# Local secrets
+.env
+.env.*
+!.env.example

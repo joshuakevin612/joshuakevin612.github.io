@@ -71,7 +71,8 @@ async function init() {
     if (!a) return;
     const u = new URL(a.href, location.href);
     if (u.pathname !== location.pathname || !u.hash) return;
-    const el = document.querySelector(u.hash);
+    let el: Element | null = null;
+    try { el = document.querySelector(u.hash); } catch { return; }
     if (!el) return;
     e.preventDefault();
     e.stopPropagation(); // keep ClientRouter out of same-page anchors

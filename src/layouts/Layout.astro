@@ -1,8 +1,21 @@
 ---
 import { ClientRouter } from 'astro:transitions';
+import { createHash } from 'node:crypto';
 import '../styles/global.css';
-interface Props { title: string; description?: string; theme?: 'light' | 'dark'; image?: string; }
-const { title, description = 'Joshua Kevin is a software developer who is just starting out, learning by building real projects.', theme = 'dark', image = '/og.png' } = Astro.props;
+import '@fontsource-variable/bricolage-grotesque/opsz.css';
+import '@fontsource/dm-mono/latin-400.css';
+import '@fontsource/dm-mono/latin-500.css';
+interface Props { title: string; description?: string; theme?: 'light' | 'dark'; image?: string; imageAlt?: string; imageSize?: { width: number; height: number }; ogType?: 'website' | 'article'; noindex?: boolean; jsonLd?: object | object[]; }
+const { title, description = 'Joshua Kevin is a software developer who is just starting out, learning by building real projects.', theme = 'dark', image = '/og.png', imageAlt = 'A vermilion JK keycap on a black background, the Joshua Kevin logo', imageSize, ogType = 'website', noindex = false, jsonLd } = Astro.props;
+const ogSize = imageSize ?? (image === '/og.png' ? { width: 1200, height: 630 } : undefined);
+const ld = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : '';
+const gsc = import.meta.env.PUBLIC_GSC_VERIFICATION;
+// Inline scripts live in these constants so the CSP below can hash the exact text (computed at build; nothing to
+// regenerate by hand). Any new inline <script> must be added here too, or the CSP will block it. JSON-LD is data, not executed.
+const SCROLL_JS = `if (!location.hash && performance.getEntriesByType('navigation')[0]?.type === 'reload') history.scrollRestoration = 'manual';`;
+const BOOT_JS = `if (!window.__jkBooted) { window.__jkBooted = 1; document.documentElement.setAttribute('data-pre', ''); }`;
+const hash = (t: string) => `'sha256-${createHash('sha256').update(t).digest('base64')}'`;
+const csp = `default-src 'self'; script-src 'self' ${hash(SCROLL_JS)} ${hash(BOOT_JS)}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests`;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const og = new URL(/^https?:/.test(image) || image.startsWith(base + '/') ? image : base + image, Astro.site);
@@ -13,22 +26,32 @@ const isHome = Astro.url.pathname.replace(/\/$/, '') === base;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script is:inline>if (!location.hash && performance.getEntriesByType('navigation')[0]?.type === 'reload') history.scrollRestoration = 'manual';</script>
-    {isHome && <script is:inline>if (!window.__jkBooted) { window.__jkBooted = 1; document.documentElement.setAttribute('data-pre', ''); }</script>}
+    {import.meta.env.PROD && <meta http-equiv="Content-Security-Policy" content={csp} />}
+    <script is:inline set:html={SCROLL_JS} />
+    {isHome && <script is:inline set:html={BOOT_JS} />}
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <meta name="theme-color" content="#0B0B0C" />
-    <meta property="og:type" content="website" />
+    <meta name="author" content="Joshua Kevin" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    {noindex && <meta name="robots" content="noindex" />}
+    {gsc && <meta name="google-site-verification" content={gsc} />}
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content="Joshua Kevin" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={og} />
+    <meta property="og:image:alt" content={imageAlt} />
+    {ogSize && <meta property="og:image:width" content={String(ogSize.width)} />}
+    {ogSize && <meta property="og:image:height" content={String(ogSize.height)} />}
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23FF4A1C'/%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="icon" href={base + '/favicon.svg'} type="image/svg+xml" />
+    <link rel="icon" href={base + '/favicon-48.png'} sizes="48x48" type="image/png" />
+    <link rel="apple-touch-icon" href={base + '/apple-touch-icon.png'} />
+    <link rel="sitemap" href={base + '/sitemap-index.xml'} />
+    {ld && <script type="application/ld+json" set:html={ld} />}
     <ClientRouter />
   </head>
   <body>

@@ -1,4 +1,10 @@
 import { defineConfig } from 'astro/config';
-// Served by GitHub Pages as a project site, so everything lives under /portfolio.
-// With a custom domain, set site to it and remove base.
-export default defineConfig({ site: 'https://joshuakevin612.github.io', base: '/portfolio', devToolbar: { enabled: false } });
+import sitemap from '@astrojs/sitemap';
+// Served by GitHub Pages as the user site (joshuakevin612.github.io), so everything lives at the root.
+// With a custom domain, just change site.
+export default defineConfig({
+  site: 'https://joshuakevin612.github.io',
+  trailingSlash: 'always',
+  integrations: [sitemap({ filter: (page) => !page.endsWith('/404/') })],
+  devToolbar: { enabled: false },
+});

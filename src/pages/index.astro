@@ -12,9 +12,15 @@ const data = items.map(({ p, preview }) => ({ slug: p.id, title: p.data.title, y
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 /** projects the page scroll walks through before moving on to contact; the rest are reached by drag, keys and clicks */
 const WORK_SCROLL_CAP = 5;
+const site = Astro.site!;
+const person = new URL('/about/#person', site).href;
+const jsonLd = [
+  { '@context': 'https://schema.org', '@type': 'WebSite', '@id': new URL('/#website', site).href, name: 'Joshua Kevin', url: site.href, author: { '@id': person } },
+  { '@context': 'https://schema.org', '@type': 'ItemList', name: 'Selected work', itemListElement: projects.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.data.title, url: new URL(`/projects/${p.id}/`, site).href })) },
+];
 const kinds = ['Full-stack web apps', 'Machine learning', 'Simulators', 'Hackathon prototypes', 'Developer tools'];
 ---
-<Layout title="Joshua Kevin — Software developer" theme="light">
+<Layout title="Joshua Kevin — Software developer" description="Selected projects by Joshua Kevin, a software developer: full-stack web apps, machine learning systems, OS simulators and hackathon prototypes, with live demos and source code." theme="light" jsonLd={jsonLd}>
   <div class="preloader" data-preloader aria-hidden="true">
     <span class="pre__label mono">Loading</span>
     <div class="pre__count" data-pre-count>0</div>
@@ -84,13 +90,12 @@ const kinds = ['Full-stack web apps', 'Machine learning', 'Simulators', 'Hackath
     </div>
     <dl class="details mono">
       <div data-reveal><dt>Email</dt><dd><a class="link" href="mailto:joshuakevin612@gmail.com">joshuakevin612@gmail.com</a></dd></div>
-      <div data-reveal><dt>Phone</dt><dd><a class="link" href="tel:+919360449747">+91 93604 49747</a></dd></div>
       <div data-reveal><dt>Based in</dt><dd>Chennai, India</dd></div>
     </dl>
     <div class="contact__foot mono">
       <ul class="socials">
-        <li><a class="link" href="https://github.com/joshuakevin612" rel="noopener">GitHub</a></li>
-        <li><a class="link" href="https://www.linkedin.com/in/joshua-kevin-s-126472380/" rel="noopener">LinkedIn</a></li>
+        <li><a class="link" href="https://github.com/joshuakevin612" rel="me noopener noreferrer">GitHub</a></li>
+        <li><a class="link" href="https://www.linkedin.com/in/joshua-kevin-s-126472380/" rel="me noopener noreferrer">LinkedIn</a></li>
       </ul>
       <span class="dim">Local time <span data-time>--:--:--</span> IST</span>
       <span class="dim">© {new Date().getFullYear()} Joshua Kevin</span>

@@ -1,7 +1,7 @@
 :root, :root[data-theme='light'] {
   --bg: #F2EEE6; --surface: #E7E1D6; --text: #14130F; --text-2: #6F6A60; --line: #D5CEC1;
   --accent: #FF4A1C;
-  --display: 'Bricolage Grotesque', 'Helvetica Neue', Arial, sans-serif;
+  --display: 'Bricolage Grotesque Variable', 'Helvetica Neue', Arial, sans-serif;
   --mono: 'DM Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
   --gutter: clamp(1rem, 4vw, 3.5rem);
   --fs-mono: clamp(0.72rem, 0.68rem + 0.2vw, 0.85rem);
