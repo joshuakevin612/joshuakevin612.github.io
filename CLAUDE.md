@@ -93,7 +93,7 @@ Each project has up to two 1600×1000 images:
 
 Which projects get title art instead of a landing-page capture is the owner's decision, not a judgement call: currently Clipfarm, NeuroVasc-X, DevHub, OS Simulators, Marine Debris and Veylith. Clipfarm deliberately has no `shot` (its real output shows other people's faces). Title art was rendered ad hoc in headless Chrome (no generator in the repo; `npm run covers` makes only title-less placeholders).
 
-There are thirteen projects, each written from its GitHub repo under `github.com/joshuakevin612`. Clipfarm lives in `twitch.md`; `os-simulators.md` covers three small repos in one entry and embeds two extra screenshots in its body. Project copy must only claim what the repo backs up (Veylith is described as an unfinished scaffold because it is one). Roles were stated by the owner; projects marked "Solo developer" are ones whose repo has a single contributor.
+There are fourteen projects, each written from its GitHub repo under `github.com/joshuakevin612`. Clipfarm lives in `twitch.md`; `os-simulators.md` covers three small repos in one entry and embeds two extra screenshots in its body. Project copy must only claim what the repo backs up (Veylith is described as an unfinished scaffold because it is one). Roles were stated by the owner; projects marked "Solo developer" are ones whose repo has a single contributor.
 
 Project page titles are split by word then character in `main.ts` and shrunk until the longest word fits, so they wrap only between words on narrow screens.
 
